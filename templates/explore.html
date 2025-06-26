@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">Data Exploration</h1>
+        <p class="lead">
+            Explore the Adult Income Dataset and understand the relationships between different features and income levels.
+        </p>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0">Dataset Statistics</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        Number of Samples
+                        <span class="badge bg-primary rounded-pill">{{ stats.num_samples }}</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        Number of Features
+                        <span class="badge bg-primary rounded-pill">{{ stats.num_features }}</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        Income ≤ $50K
+                        <span class="badge bg-primary rounded-pill">{{ stats.income_distribution['<=50K'] }}</span>
+                    </li>
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        Income > $50K
+                        <span class="badge bg-primary rounded-pill">{{ stats.income_distribution['>50K'] }}</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0">Features</h5>
+            </div>
+            <div class="card-body">
+                <h6>Categorical Features</h6>
+                <ul class="list-group list-group-flush mb-3">
+                    {% for feature in stats.categorical_features %}
+                    <li class="list-group-item">{{ feature }}</li>
+                    {% endfor %}
+                </ul>
+
+                <h6>Numerical Features</h6>
+                <ul class="list-group list-group-flush">
+                    {% for feature in stats.numerical_features %}
+                    <li class="list-group-item">{{ feature }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header bg-info text-white">
+                <h5 class="card-title mb-0">Income Distribution by Gender</h5>
+            </div>
+            <div class="card-body">
+                <img src="{{ url_for('static', filename='images/explore/income_by_gender.png') }}" alt="Income Distribution by Gender" class="img-fluid">
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header bg-info text-white">
+                <h5 class="card-title mb-0">Income Distribution by Race</h5>
+            </div>
+            <div class="card-body">
+                <img src="{{ url_for('static', filename='images/explore/income_by_race.png') }}" alt="Income Distribution by Race" class="img-fluid">
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5 class="card-title mb-0">Age Distribution by Income</h5>
+            </div>
+            <div class="card-body">
+                <img src="{{ url_for('static', filename='images/explore/age_by_income.png') }}" alt="Age Distribution by Income" class="img-fluid">
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

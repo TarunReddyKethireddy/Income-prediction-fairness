@@ -1,0 +1,96 @@
+/* Custom styles for Income Prediction app */
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa;
+}
+
+.navbar {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.card {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+    border: none;
+    border-radius: 8px;
+}
+
+.card-header {
+    border-radius: 8px 8px 0 0 !important;
+    font-weight: 500;
+}
+
+.footer {
+    box-shadow: 0 -2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* Form styling */
+.form-label {
+    font-weight: 500;
+}
+
+.form-control, .form-select {
+    border-radius: 6px;
+    border: 1px solid #ced4da;
+    padding: 10px;
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: #80bdff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+/* Button styling */
+.btn-primary {
+    background-color: #0d6efd;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 20px;
+    font-weight: 500;
+    transition: all 0.3s;
+}
+
+.btn-primary:hover {
+    background-color: #0b5ed7;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Prediction result styling */
+#prediction-result {
+    padding: 20px;
+    text-align: center;
+}
+
+#prediction-text {
+    font-weight: 600;
+    margin-bottom: 20px;
+}
+
+.progress {
+    height: 25px;
+    border-radius: 6px;
+    margin-bottom: 15px;
+}
+
+/* Images */
+.img-fluid {
+    border-radius: 6px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .card {
+        margin-bottom: 15px;
+    }
+    
+    .form-control, .form-select {
+        padding: 8px;
+    }
+    
+    .btn-primary {
+        padding: 8px 16px;
+    }
+}

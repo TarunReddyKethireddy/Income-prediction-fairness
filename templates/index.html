@@ -1,0 +1,298 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">Income Prediction with Fairness-Aware Machine Learning</h1>
+        <p class="lead">
+            This application demonstrates income prediction using machine learning models with fairness considerations.
+            The models are trained on the Adult Income Dataset from the UCI Machine Learning Repository.
+        </p>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0">Make a Prediction</h5>
+            </div>
+            <div class="card-body">
+                <form id="prediction-form">
+                    <div class="mb-3">
+                        <label for="age" class="form-label">Age</label>
+                        <input type="number" class="form-control" id="age" name="age" required min="17" max="90" value="30">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="workclass" class="form-label">Work Class</label>
+                        <select class="form-select" id="workclass" name="workclass" required>
+                            <option value="Private">Private</option>
+                            <option value="Self-emp-not-inc">Self-employed (not inc.)</option>
+                            <option value="Self-emp-inc">Self-employed (inc.)</option>
+                            <option value="Federal-gov">Federal Government</option>
+                            <option value="Local-gov">Local Government</option>
+                            <option value="State-gov">State Government</option>
+                            <option value="Without-pay">Without Pay</option>
+                            <option value="Never-worked">Never Worked</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="education" class="form-label">Education</label>
+                        <select class="form-select" id="education" name="education" required>
+                            <option value="Bachelors">Bachelor's</option>
+                            <option value="HS-grad">High School Graduate</option>
+                            <option value="Some-college">Some College</option>
+                            <option value="Masters">Master's</option>
+                            <option value="Assoc-voc">Associate's (Vocational)</option>
+                            <option value="Assoc-acdm">Associate's (Academic)</option>
+                            <option value="Doctorate">Doctorate</option>
+                            <option value="Prof-school">Professional School</option>
+                            <option value="9th">9th Grade</option>
+                            <option value="10th">10th Grade</option>
+                            <option value="11th">11th Grade</option>
+                            <option value="12th">12th Grade</option>
+                            <option value="1st-4th">1st-4th Grade</option>
+                            <option value="5th-6th">5th-6th Grade</option>
+                            <option value="7th-8th">7th-8th Grade</option>
+                            <option value="Preschool">Preschool</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="education-num" class="form-label">Education Years</label>
+                        <input type="number" class="form-control" id="education-num" name="education-num" required min="1" max="16" value="13">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="marital-status" class="form-label">Marital Status</label>
+                        <select class="form-select" id="marital-status" name="marital-status" required>
+                            <option value="Married-civ-spouse">Married (civilian spouse)</option>
+                            <option value="Never-married">Never married</option>
+                            <option value="Divorced">Divorced</option>
+                            <option value="Separated">Separated</option>
+                            <option value="Widowed">Widowed</option>
+                            <option value="Married-spouse-absent">Married (spouse absent)</option>
+                            <option value="Married-AF-spouse">Married (AF spouse)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="occupation" class="form-label">Occupation</label>
+                        <select class="form-select" id="occupation" name="occupation" required>
+                            <option value="Prof-specialty">Professional Specialty</option>
+                            <option value="Craft-repair">Craft Repair</option>
+                            <option value="Exec-managerial">Executive/Managerial</option>
+                            <option value="Adm-clerical">Administrative/Clerical</option>
+                            <option value="Sales">Sales</option>
+                            <option value="Other-service">Other Service</option>
+                            <option value="Machine-op-inspct">Machine Operator/Inspector</option>
+                            <option value="Transport-moving">Transport Moving</option>
+                            <option value="Handlers-cleaners">Handlers/Cleaners</option>
+                            <option value="Farming-fishing">Farming/Fishing</option>
+                            <option value="Tech-support">Technical Support</option>
+                            <option value="Protective-serv">Protective Service</option>
+                            <option value="Priv-house-serv">Private House Service</option>
+                            <option value="Armed-Forces">Armed Forces</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="relationship" class="form-label">Relationship</label>
+                        <select class="form-select" id="relationship" name="relationship" required>
+                            <option value="Husband">Husband</option>
+                            <option value="Not-in-family">Not in family</option>
+                            <option value="Own-child">Own child</option>
+                            <option value="Unmarried">Unmarried</option>
+                            <option value="Wife">Wife</option>
+                            <option value="Other-relative">Other relative</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="race" class="form-label">Race</label>
+                        <select class="form-select" id="race" name="race" required>
+                            <option value="White">White</option>
+                            <option value="Black">Black</option>
+                            <option value="Asian-Pac-Islander">Asian/Pacific Islander</option>
+                            <option value="Amer-Indian-Eskimo">American Indian/Eskimo</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="sex" class="form-label">Sex</label>
+                        <select class="form-select" id="sex" name="sex" required>
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="capital-gain" class="form-label">Capital Gain</label>
+                        <input type="number" class="form-control" id="capital-gain" name="capital-gain" required min="0" value="0">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="capital-loss" class="form-label">Capital Loss</label>
+                        <input type="number" class="form-control" id="capital-loss" name="capital-loss" required min="0" value="0">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="hours-per-week" class="form-label">Hours per Week</label>
+                        <input type="number" class="form-control" id="hours-per-week" name="hours-per-week" required min="1" max="99" value="40">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="native-country" class="form-label">Native Country</label>
+                        <select class="form-select" id="native-country" name="native-country" required>
+                            <option value="United-States">United States</option>
+                            <option value="Mexico">Mexico</option>
+                            <option value="Philippines">Philippines</option>
+                            <option value="Germany">Germany</option>
+                            <option value="Canada">Canada</option>
+                            <option value="Puerto-Rico">Puerto Rico</option>
+                            <option value="El-Salvador">El Salvador</option>
+                            <option value="India">India</option>
+                            <option value="Cuba">Cuba</option>
+                            <option value="England">England</option>
+                            <option value="Jamaica">Jamaica</option>
+                            <option value="South">South</option>
+                            <option value="China">China</option>
+                            <option value="Italy">Italy</option>
+                            <option value="Dominican-Republic">Dominican Republic</option>
+                            <option value="Vietnam">Vietnam</option>
+                            <option value="Guatemala">Guatemala</option>
+                            <option value="Japan">Japan</option>
+                            <option value="Poland">Poland</option>
+                            <option value="Columbia">Columbia</option>
+                            <option value="Taiwan">Taiwan</option>
+                            <option value="Haiti">Haiti</option>
+                            <option value="Iran">Iran</option>
+                            <option value="Portugal">Portugal</option>
+                            <option value="Nicaragua">Nicaragua</option>
+                            <option value="Peru">Peru</option>
+                            <option value="France">France</option>
+                            <option value="Greece">Greece</option>
+                            <option value="Ecuador">Ecuador</option>
+                            <option value="Ireland">Ireland</option>
+                            <option value="Hong">Hong Kong</option>
+                            <option value="Cambodia">Cambodia</option>
+                            <option value="Trinadad&Tobago">Trinidad & Tobago</option>
+                            <option value="Laos">Laos</option>
+                            <option value="Thailand">Thailand</option>
+                            <option value="Yugoslavia">Yugoslavia</option>
+                            <option value="Outlying-US(Guam-USVI-etc)">Outlying US</option>
+                            <option value="Hungary">Hungary</option>
+                            <option value="Honduras">Honduras</option>
+                            <option value="Scotland">Scotland</option>
+                            <option value="Holand-Netherlands">Holland/Netherlands</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="model" class="form-label">Model</label>
+                        <select class="form-select" id="model" name="model" required>
+                            {% for model_name in model_names %}
+                            <option value="{{ model_name }}">{{ model_name|replace('_', ' ')|title }}</option>
+                            {% endfor %}
+                            {% if not model_names %}
+                            <option value="logistic_regression">Logistic Regression</option>
+                            <option value="random_forest">Random Forest</option>
+                            <option value="fair_demographic_parity">Fair (Demographic Parity)</option>
+                            <option value="fair_equalized_odds">Fair (Equalized Odds)</option>
+                            {% endif %}
+                        </select>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">Predict Income</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header bg-success text-white">
+                <h5 class="card-title mb-0">Prediction Result</h5>
+            </div>
+            <div class="card-body">
+                <div id="prediction-result" class="d-none">
+                    <h3 id="prediction-text" class="mb-3"></h3>
+                    <div class="progress mb-3">
+                        <div id="prediction-probability" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                    </div>
+                    <p id="prediction-probability-text" class="mb-3"></p>
+                    <p id="model-used" class="text-muted"></p>
+                </div>
+                <div id="no-prediction" class="text-center py-5">
+                    <p class="text-muted">Fill out the form and click "Predict Income" to see the prediction result.</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5 class="card-title mb-0">Model Performance</h5>
+            </div>
+            <div class="card-body">
+                {% if performance_data %}
+                <div class="mb-4">
+                    <h6>Performance Metrics</h6>
+                    <img src="{{ url_for('static', filename='images/model_performance.png') }}" alt="Model Performance" class="img-fluid">
+                </div>
+                
+                <div>
+                    <h6>Fairness Metrics</h6>
+                    <img src="{{ url_for('static', filename='images/fairness_metrics.png') }}" alt="Fairness Metrics" class="img-fluid">
+                </div>
+                {% else %}
+                <p class="text-center py-3">
+                    No model performance data available. Please run the training script first.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('prediction-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(this);
+        
+        fetch('/predict', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('no-prediction').classList.add('d-none');
+            document.getElementById('prediction-result').classList.remove('d-none');
+            
+            if (data.error) {
+                document.getElementById('prediction-text').textContent = 'Error: ' + data.error;
+                document.getElementById('prediction-probability').style.width = '0%';
+                document.getElementById('prediction-probability-text').textContent = '';
+                document.getElementById('model-used').textContent = '';
+            } else {
+                document.getElementById('prediction-text').textContent = 'Predicted Income: ' + data.prediction;
+                
+                const probability = data.prediction === '> $50K' ? data.probability * 100 : (1 - data.probability) * 100;
+                document.getElementById('prediction-probability').style.width = probability + '%';
+                document.getElementById('prediction-probability-text').textContent = 'Confidence: ' + probability.toFixed(2) + '%';
+                
+                document.getElementById('model-used').textContent = 'Model used: ' + data.model_used.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('prediction-text').textContent = 'Error: Failed to get prediction';
+        });
+    });
+</script>
+{% endblock %}

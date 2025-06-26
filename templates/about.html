@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">About This Project</h1>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0">Income Prediction with Fairness-Aware Machine Learning</h5>
+            </div>
+            <div class="card-body">
+                <h5>Project Overview</h5>
+                <p>
+                    This project demonstrates the application of fairness-aware machine learning techniques to income prediction.
+                    It uses the Adult Income Dataset from the UCI Machine Learning Repository to predict whether an individual's
+                    income exceeds $50,000 per year based on census data.
+                </p>
+                
+                <h5>Fairness in Machine Learning</h5>
+                <p>
+                    Machine learning models can inadvertently perpetuate or amplify biases present in training data.
+                    This project implements fairness-aware algorithms that aim to mitigate bias with respect to sensitive
+                    attributes such as gender and race, while maintaining predictive performance.
+                </p>
+                
+                <h5>Fairness Metrics</h5>
+                <p>
+                    The project evaluates models using the following fairness metrics:
+                </p>
+                <ul>
+                    <li><strong>Demographic Parity Difference</strong>: Measures the difference in positive prediction rates between privileged and unprivileged groups.</li>
+                    <li><strong>Equalized Odds Difference</strong>: Measures the difference in true positive and false positive rates between privileged and unprivileged groups.</li>
+                </ul>
+                
+                <h5>Implemented Models</h5>
+                <p>
+                    The project implements several machine learning models:
+                </p>
+                <ul>
+                    <li><strong>Logistic Regression</strong>: A baseline linear model for binary classification.</li>
+                    <li><strong>Random Forest</strong>: An ensemble learning method that builds multiple decision trees.</li>
+                    <li><strong>Fair Demographic Parity</strong>: A model constrained to satisfy demographic parity.</li>
+                    <li><strong>Fair Equalized Odds</strong>: A model constrained to satisfy equalized odds.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header bg-info text-white">
+                <h5 class="card-title mb-0">Dataset Information</h5>
+            </div>
+            <div class="card-body">
+                <p>
+                    <strong>Name:</strong> Adult Income Dataset<br>
+                    <strong>Source:</strong> UCI Machine Learning Repository<br>
+                    <strong>Instances:</strong> 48,842<br>
+                    <strong>Features:</strong> 14<br>
+                    <strong>Task:</strong> Binary Classification
+                </p>
+                
+                <p>
+                    The dataset contains census data extracted from the 1994 Census database.
+                    The prediction task is to determine whether a person makes over $50,000 a year.
+                </p>
+                
+                <p>
+                    <a href="https://archive.ics.uci.edu/ml/datasets/adult" target="_blank" class="btn btn-outline-primary btn-sm">
+                        View Dataset Source
+                    </a>
+                </p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h5 class="card-title mb-0">Technologies Used</h5>
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item">Python</li>
+                    <li class="list-group-item">Flask</li>
+                    <li class="list-group-item">Scikit-learn</li>
+                    <li class="list-group-item">Pandas</li>
+                    <li class="list-group-item">NumPy</li>
+                    <li class="list-group-item">Matplotlib</li>
+                    <li class="list-group-item">Seaborn</li>
+                    <li class="list-group-item">Fairlearn</li>
+                    <li class="list-group-item">AIF360</li>
+                    <li class="list-group-item">Bootstrap</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
