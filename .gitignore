@@ -41,6 +41,9 @@ coverage.xml
 # Large generated files
 data/processed/*.npy
 data/models/*.joblib
+data/models/*.csv
+income_prediction_models_*.zip
+*.zip
 
 # Keep raw data files
 !data/*.data

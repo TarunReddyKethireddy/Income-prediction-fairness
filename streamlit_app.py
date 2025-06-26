@@ -31,13 +31,28 @@ def load_models():
         st.warning(f"Note: Model files not found. Running in demo mode with simulated predictions.")
         # Create dummy models for demo purposes
         from sklearn.dummy import DummyClassifier
-        dummy_lr = DummyClassifier(strategy='stratified')
-        dummy_lr.fit(np.array([[0, 0]]), np.array([0, 1]))
+        
+        # Create a more robust dummy classifier with proper dimensions
+        # Generate synthetic features with the right shape
+        X_dummy = np.random.rand(100, 10)  # 100 samples, 10 features
+        y_dummy = np.random.randint(0, 2, 100)  # Binary target
+        
+        # Create and train different dummy models
+        dummy_lr = DummyClassifier(strategy='prior')
+        dummy_lr.fit(X_dummy, y_dummy)
+        
+        dummy_rf = DummyClassifier(strategy='stratified')
+        dummy_rf.fit(X_dummy, y_dummy)
+        
+        # Add predict_proba method to dummy models if they don't have it
+        if not hasattr(dummy_lr, 'predict_proba'):
+            dummy_lr.predict_proba = lambda X: np.column_stack([np.zeros(len(X)), np.ones(len(X))])
+            dummy_rf.predict_proba = lambda X: np.column_stack([np.zeros(len(X)), np.ones(len(X))])
         
         models['logistic_regression'] = dummy_lr
-        models['random_forest'] = dummy_lr
+        models['random_forest'] = dummy_rf
         models['fair_demographic_parity'] = dummy_lr
-        models['fair_equalized_odds'] = dummy_lr
+        models['fair_equalized_odds'] = dummy_rf
         return models
 
 @st.cache_resource
@@ -46,13 +61,33 @@ def load_preprocessor():
         return joblib.load('data/processed/preprocessor.joblib')
     except Exception as e:
         st.warning(f"Note: Preprocessor not found. Running in demo mode with simulated preprocessing.")
-        # Create a dummy preprocessor for demo purposes
+        # Create a more robust dummy preprocessor for demo purposes
         from sklearn.preprocessing import FunctionTransformer
-        dummy_preprocessor = FunctionTransformer()
+        from sklearn.compose import ColumnTransformer
+        from sklearn.pipeline import Pipeline
+        
+        # Create a custom transformer that returns a fixed number of features
+        def transform_input(X):
+            # Convert input to a fixed size feature vector of 10 dimensions
+            # This ensures compatibility with our dummy models
+            if isinstance(X, pd.DataFrame):
+                n_samples = X.shape[0]
+            else:
+                n_samples = len(X)
+            return np.ones((n_samples, 10))  # Return dummy features
+        
+        dummy_preprocessor = FunctionTransformer(transform_input)
+        
+        # Add necessary attributes to mimic a real preprocessor
         dummy_preprocessor.feature_names_in_ = ['age', 'workclass', 'fnlwgt', 'education', 
                                             'education-num', 'marital-status', 'occupation', 
                                             'relationship', 'race', 'sex', 'capital-gain', 
                                             'capital-loss', 'hours-per-week', 'native-country']
+        
+        # Add transform method if it doesn't exist
+        if not hasattr(dummy_preprocessor, 'transform'):
+            dummy_preprocessor.transform = transform_input
+            
         return dummy_preprocessor
 
 # Load feature names
@@ -166,7 +201,7 @@ performance_df = load_performance_metrics()
 fairness_df = load_fairness_metrics()
 data = load_data()
 
-# Check if running in demo mode
+# Check if running in demo mode and provide file upload option
 demo_mode = False
 try:
     # Try to access one of the model files to determine if we're in demo mode
@@ -177,8 +212,152 @@ except FileNotFoundError:
 
 # Define sidebar navigation
 st.sidebar.title("Navigation")
+
+# Add model file upload option in sidebar if in demo mode
 if demo_mode:
     st.sidebar.warning("⚠️ Running in demo mode with simulated data and predictions")
+    
+    # Create directories if they don't exist
+    import os
+    os.makedirs('data/models', exist_ok=True)
+    os.makedirs('data/processed', exist_ok=True)
+    
+    # Add option to download models from cloud storage
+    st.sidebar.markdown("### Download Models from Cloud")
+    
+    download_option = st.sidebar.radio(
+        "Select download method:",
+        ["Direct URL to zip file", "Individual model files"]
+    )
+    
+    if download_option == "Direct URL to zip file":
+        zip_url = st.sidebar.text_input("Enter URL to models zip file")
+        
+        if zip_url and st.sidebar.button("Download & Extract Models", key="download_zip"):
+            try:
+                from extract_models import download_and_extract_models
+                with st.spinner("Downloading and extracting model files..."):
+                    success = download_and_extract_models(zip_url)
+                    if success:
+                        st.sidebar.success("✅ Models downloaded and extracted successfully!")
+                        st.experimental_rerun()
+                    else:
+                        st.sidebar.error("❌ Failed to download or extract models. Check the URL and try again.")
+            except Exception as e:
+                st.sidebar.error(f"Error: {e}")
+    else:
+        cloud_url = st.sidebar.text_input("Enter cloud storage base URL (must end with '/')")
+        
+        if cloud_url and st.sidebar.button("Download Individual Models", key="download_individual"):
+            try:
+                from download_models import download_all_models
+                with st.spinner("Downloading model files from cloud storage..."):
+                    success = download_all_models(cloud_url)
+                    if success:
+                        st.sidebar.success("✅ All model files downloaded successfully!")
+                        st.experimental_rerun()
+                    else:
+                        st.sidebar.error("❌ Some files failed to download. Check the URL and try again.")
+            except Exception as e:
+                st.sidebar.error(f"Error downloading models: {e}")
+    
+    # Or upload files manually
+    st.sidebar.markdown("### Upload Model Files Manually")
+    st.sidebar.markdown("Alternatively, upload your trained model files to use actual models:")
+
+    
+    # File uploaders for each model
+    with st.sidebar.expander("Upload Model Files"):
+        lr_model = st.file_uploader("Logistic Regression Model", type="joblib")
+        if lr_model is not None:
+            with open('data/models/logistic_regression.joblib', 'wb') as f:
+                f.write(lr_model.getvalue())
+            st.success("Logistic Regression model uploaded!")
+        
+        rf_model = st.file_uploader("Random Forest Model", type="joblib")
+        if rf_model is not None:
+            with open('data/models/random_forest.joblib', 'wb') as f:
+                f.write(rf_model.getvalue())
+            st.success("Random Forest model uploaded!")
+        
+        dp_model = st.file_uploader("Fair Demographic Parity Model", type="joblib")
+        if dp_model is not None:
+            with open('data/models/fair_demographic_parity.joblib', 'wb') as f:
+                f.write(dp_model.getvalue())
+            st.success("Fair Demographic Parity model uploaded!")
+        
+        eo_model = st.file_uploader("Fair Equalized Odds Model", type="joblib")
+        if eo_model is not None:
+            with open('data/models/fair_equalized_odds.joblib', 'wb') as f:
+                f.write(eo_model.getvalue())
+            st.success("Fair Equalized Odds model uploaded!")
+        
+        # Preprocessor upload
+        preprocessor_file = st.file_uploader("Preprocessor", type="joblib")
+        if preprocessor_file is not None:
+            with open('data/models/preprocessor.joblib', 'wb') as f:
+                f.write(preprocessor_file.getvalue())
+            st.success("Preprocessor uploaded!")
+    
+    # Upload processed data files
+    with st.sidebar.expander("Upload Processed Data Files"):
+        st.markdown("Upload processed data files (optional):")
+        
+        # Feature names upload
+        feature_names_file = st.file_uploader("Feature Names (TXT)", type="txt")
+        if feature_names_file is not None:
+            with open('data/processed/feature_names.txt', 'wb') as f:
+                f.write(feature_names_file.getvalue())
+            st.success("Feature names uploaded!")
+        
+        # X_train upload
+        x_train_file = st.file_uploader("X_train (NPY)", type="npy")
+        if x_train_file is not None:
+            with open('data/processed/X_train.npy', 'wb') as f:
+                f.write(x_train_file.getvalue())
+            st.success("X_train uploaded!")
+        
+        # X_test upload
+        x_test_file = st.file_uploader("X_test (NPY)", type="npy")
+        if x_test_file is not None:
+            with open('data/processed/X_test.npy', 'wb') as f:
+                f.write(x_test_file.getvalue())
+            st.success("X_test uploaded!")
+        
+        # y_train upload
+        y_train_file = st.file_uploader("y_train (NPY)", type="npy")
+        if y_train_file is not None:
+            with open('data/processed/y_train.npy', 'wb') as f:
+                f.write(y_train_file.getvalue())
+            st.success("y_train uploaded!")
+        
+        # y_test upload
+        y_test_file = st.file_uploader("y_test (NPY)", type="npy")
+        if y_test_file is not None:
+            with open('data/processed/y_test.npy', 'wb') as f:
+                f.write(y_test_file.getvalue())
+            st.success("y_test uploaded!")
+    
+    # Performance metrics upload
+    with st.sidebar.expander("Upload Performance Metrics"):
+        st.markdown("Upload performance metrics files (optional):")
+        
+        # Model performance upload
+        performance_file = st.file_uploader("Model Performance (CSV)", type="csv")
+        if performance_file is not None:
+            with open('data/models/model_performance.csv', 'wb') as f:
+                f.write(performance_file.getvalue())
+            st.success("Model performance metrics uploaded!")
+        
+        # Fairness metrics upload
+        fairness_file = st.file_uploader("Fairness Metrics (CSV)", type="csv")
+        if fairness_file is not None:
+            with open('data/models/fairness_metrics.csv', 'wb') as f:
+                f.write(fairness_file.getvalue())
+            st.success("Fairness metrics uploaded!")
+    
+    if st.sidebar.button("Reload App with Uploaded Files", type="primary"):
+        st.experimental_rerun()
     
 page = st.sidebar.radio("Go to", ["Home", "Data Exploration", "Model Performance", "About"])
 
