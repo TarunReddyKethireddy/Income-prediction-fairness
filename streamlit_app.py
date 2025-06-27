@@ -711,7 +711,7 @@ if page == "Home":
                     
                     # Display result
                     st.subheader("Prediction Result")
-                    result_container = st.container(border=True)
+                    result_container = st.container()
                     with result_container:
                         if prediction == '>50K':
                             st.success(f"Prediction: Income > $50K")
