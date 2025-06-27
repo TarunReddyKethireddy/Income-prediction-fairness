@@ -205,6 +205,11 @@ def load_preprocessor():
         def get_feature_names_out(self):
             # Return dummy feature names
             return [f'feature_{i}' for i in range(104)]
+            
+        # For backward compatibility with older scikit-learn versions
+        def get_feature_names(self):
+            # Return dummy feature names (for scikit-learn < 1.0)
+            return [f'feature_{i}' for i in range(104)]
     
     debug_info.append("Created dummy preprocessor")
     
@@ -232,6 +237,20 @@ def load_feature_names():
             st.error(f"Error loading feature names: {str(e)}")
     else:
         st.warning(f"Feature names file not found at {feature_names_path}. Using dummy feature names.")
+    
+    # Try to get feature names from preprocessor with version compatibility
+    try:
+        # Load preprocessor just for feature names extraction
+        temp_preprocessor = load_preprocessor()
+        if temp_preprocessor is not None:
+            # Try newer scikit-learn method first
+            if hasattr(temp_preprocessor, 'get_feature_names_out'):
+                return list(temp_preprocessor.get_feature_names_out())
+            # Fall back to older method
+            elif hasattr(temp_preprocessor, 'get_feature_names'):
+                return list(temp_preprocessor.get_feature_names())
+    except Exception as e:
+        st.warning(f"Could not extract feature names from preprocessor: {str(e)}")
     
     # Return dummy feature names matching the dummy preprocessor output dimensions
     return [f'feature_{i}' for i in range(104)]
@@ -333,8 +352,18 @@ def predict_income(input_data, model_name='logistic_regression'):
         # Preprocess the input data
         debug_info.append("Transforming input data with preprocessor")
         try:
-            X = preprocessor.transform(input_data)
-            debug_info.append(f"Transformed data shape: {X.shape if hasattr(X, 'shape') else 'unknown'}")
+            # Handle different preprocessor interfaces
+            if hasattr(preprocessor, 'transform'):
+                X = preprocessor.transform(input_data)
+                debug_info.append(f"Used transform method, shape: {X.shape if hasattr(X, 'shape') else 'unknown'}")
+            elif hasattr(preprocessor, 'transform_X'):
+                # Some older fairness-aware preprocessors use transform_X
+                X = preprocessor.transform_X(input_data)
+                debug_info.append(f"Used transform_X method, shape: {X.shape if hasattr(X, 'shape') else 'unknown'}")
+            else:
+                debug_info.append("No transform method found on preprocessor")
+                st.sidebar.expander("Prediction Debug", expanded=False).write("\n".join(debug_info))
+                return None, "Preprocessor doesn't have a transform method"
         except Exception as preprocess_error:
             debug_info.append(f"Error in preprocessing: {str(preprocess_error)}")
             st.sidebar.expander("Prediction Debug", expanded=False).write("\n".join(debug_info))
