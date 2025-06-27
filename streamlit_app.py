@@ -55,8 +55,8 @@ if os.environ.get('STREAMLIT_ENV', 'development') == 'development':
     """)
 
 # Load models and preprocessor
-# Use a hash function to ensure cache is invalidated when needed
-@st.cache_resource(hash_funcs={dict: lambda _: None})
+# Disable caching temporarily to ensure fresh loading on each run
+# @st.cache_resource(hash_funcs={dict: lambda _: None})
 def load_models():
     """Load trained models or create dummy models if not found."""
     models = {}
@@ -72,7 +72,10 @@ def load_models():
     debug_info = []
     debug_info.append(f"Models directory exists: {os.path.exists(MODELS_DIR)}")
     if os.path.exists(MODELS_DIR):
-        debug_info.append(f"Files in models directory: {os.listdir(MODELS_DIR)}")
+        try:
+            debug_info.append(f"Files in models directory: {os.listdir(MODELS_DIR)}")
+        except Exception as e:
+            debug_info.append(f"Error listing models directory: {str(e)}")
     
     # Helper function to safely load models with version compatibility handling
     def safe_load_model(model_path, model_name):
@@ -83,32 +86,15 @@ def load_models():
                 
             debug_info.append(f"Attempting to load {model_name} from {model_path}")
             
-            # For Random Forest models, we need special handling due to version differences
-            if model_name == 'random_forest':
-                try:
-                    # First try normal loading
-                    model = joblib.load(model_path)
-                    debug_info.append(f"Successfully loaded {model_name}")
-                    return model, None
-                except Exception as rf_error:
-                    # If it fails with dtype incompatibility, try a fallback approach
-                    error_msg = str(rf_error)
-                    debug_info.append(f"Error loading {model_name}: {error_msg}")
-                    if 'incompatible dtype' in error_msg:
-                        debug_info.append(f"Random Forest has version compatibility issues")
-                        return None, f"Version compatibility issue: {error_msg}"
-                    else:
-                        return None, error_msg
-            else:
-                # For other models, just try normal loading
-                try:
-                    model = joblib.load(model_path)
-                    debug_info.append(f"Successfully loaded {model_name}")
-                    return model, None
-                except Exception as e:
-                    error_msg = str(e)
-                    debug_info.append(f"Error loading {model_name}: {error_msg}")
-                    return None, error_msg
+            try:
+                # Try normal loading first for all models
+                model = joblib.load(model_path)
+                debug_info.append(f"Successfully loaded {model_name}")
+                return model, None
+            except Exception as e:
+                error_msg = str(e)
+                debug_info.append(f"Error loading {model_name}: {error_msg}")
+                return None, error_msg
         except Exception as e:
             error_msg = str(e)
             debug_info.append(f"Unexpected error loading {model_name}: {error_msg}")
@@ -116,8 +102,11 @@ def load_models():
     
     # First check if the models directory exists
     if not os.path.exists(MODELS_DIR):
-        os.makedirs(MODELS_DIR, exist_ok=True)
-        st.warning(f"Models directory not found. Created directory at {MODELS_DIR}")
+        try:
+            os.makedirs(MODELS_DIR, exist_ok=True)
+            st.warning(f"Models directory not found. Created directory at {MODELS_DIR}")
+        except Exception as e:
+            st.error(f"Failed to create models directory: {str(e)}")
         missing_models = list(model_files.keys())
     else:
         # Try to load each model individually
@@ -127,30 +116,42 @@ def load_models():
                 models[name] = model
                 debug_info.append(f"Added {name} to models dictionary")
             else:
-                st.error(f"Error loading model {name}: {error}")
+                st.warning(f"Could not load model {name}: {error}")
                 missing_models.append(name)
     
-    # If any models are missing, create dummy models
-    if missing_models:
-        st.warning(f"Note: Some model files not found: {', '.join(missing_models)}. Using dummy models for these.")
-        from sklearn.dummy import DummyClassifier
-        
-        # Create a more robust dummy classifier with proper dimensions
-        X_dummy = np.random.rand(100, 10)  # 100 samples, 10 features
-        y_dummy = np.random.randint(0, 2, 100)  # Binary target
-        
-        # Create dummy models for missing ones
-        for name in missing_models:
-            if name in ['logistic_regression', 'fair_demographic_parity']:
-                dummy_model = DummyClassifier(strategy='prior')
-            else:  # random_forest or fair_equalized_odds
-                dummy_model = DummyClassifier(strategy='stratified')
-            dummy_model.fit(X_dummy, y_dummy)
-            models[name] = dummy_model
-            debug_info.append(f"Created dummy model for {name}")
+    # Always create dummy models regardless of whether real models were loaded
+    # This ensures we have fallbacks for all models
+    debug_info.append("Creating dummy models for fallback...")
+    from sklearn.dummy import DummyClassifier
+    
+    # Create a more robust dummy classifier with proper dimensions
+    X_dummy = np.random.rand(100, 10)  # 100 samples, 10 features
+    y_dummy = np.random.randint(0, 2, 100)  # Binary target
+    
+    # Create dummy models for all model types as fallbacks
+    dummy_models = {}
+    for name in model_files.keys():
+        if name in ['logistic_regression', 'fair_demographic_parity']:
+            dummy_model = DummyClassifier(strategy='prior')
+        else:  # random_forest or fair_equalized_odds
+            dummy_model = DummyClassifier(strategy='stratified')
+        dummy_model.fit(X_dummy, y_dummy)
+        dummy_models[name] = dummy_model
+        debug_info.append(f"Created dummy model for {name}")
+    
+    # Replace missing models with dummy models
+    for name in missing_models:
+        models[name] = dummy_models[name]
+        debug_info.append(f"Using dummy model for {name}")
     
     # Add model loading debug info to sidebar
     st.sidebar.expander("Model Loading Debug", expanded=False).write("\n".join(debug_info))
+    
+    # Ensure we have all required models
+    for name in model_files.keys():
+        if name not in models:
+            models[name] = dummy_models[name]
+            debug_info.append(f"Fallback: Using dummy model for {name}")
     
     return models
 
@@ -168,8 +169,8 @@ class DummyPreprocessor:
         # Return dummy feature names
         return [f'feature_{i}' for i in range(104)]
 
-# Use a hash function to ensure cache is invalidated when needed
-@st.cache_resource(hash_funcs={object: lambda _: None})
+# Disable caching temporarily to ensure fresh loading on each run
+# @st.cache_resource(hash_funcs={object: lambda _: None})
 def load_preprocessor():
     """Load trained preprocessor or create dummy preprocessor if not found."""
     preprocessor_path = os.path.join(PROCESSED_DIR, 'preprocessor.joblib')
@@ -179,63 +180,96 @@ def load_preprocessor():
     debug_info.append(f"Preprocessor path: {preprocessor_path}")
     debug_info.append(f"Processed directory exists: {os.path.exists(PROCESSED_DIR)}")
     if os.path.exists(PROCESSED_DIR):
-        debug_info.append(f"Files in processed directory: {os.listdir(PROCESSED_DIR)}")
+        try:
+            debug_info.append(f"Files in processed directory: {os.listdir(PROCESSED_DIR)}")
+        except Exception as e:
+            debug_info.append(f"Error listing processed directory: {str(e)}")
     debug_info.append(f"Preprocessor file exists: {os.path.exists(preprocessor_path)}")
     
     # First check if the processed directory exists
     if not os.path.exists(PROCESSED_DIR):
-        os.makedirs(PROCESSED_DIR, exist_ok=True)
-        st.warning(f"Processed directory not found. Created directory at {PROCESSED_DIR}")
-        debug_info.append("Created processed directory")
+        try:
+            os.makedirs(PROCESSED_DIR, exist_ok=True)
+            st.warning(f"Processed directory not found. Created directory at {PROCESSED_DIR}")
+            debug_info.append("Created processed directory")
+        except Exception as e:
+            st.error(f"Failed to create processed directory: {str(e)}")
+            debug_info.append(f"Failed to create processed directory: {str(e)}")
     
-    # Check if preprocessor file exists
+    # Try to load the preprocessor if it exists
+    preprocessor = None
     if os.path.exists(preprocessor_path):
         try:
             debug_info.append("Attempting to load preprocessor")
             preprocessor = joblib.load(preprocessor_path)
             debug_info.append("Successfully loaded preprocessor")
-            
-            # Add preprocessor debug info to sidebar
-            st.sidebar.expander("Preprocessor Debug", expanded=False).write("\n".join(debug_info))
-            
-            return preprocessor
         except Exception as e:
             error_msg = str(e)
             debug_info.append(f"Error loading preprocessor: {error_msg}")
-            st.error(f"Error loading preprocessor: {error_msg}")
+            st.warning(f"Error loading preprocessor: {error_msg}")
+            preprocessor = None
     else:
         debug_info.append("Preprocessor file not found")
-        st.warning(f"Preprocessor file not found at {preprocessor_path}. Using dummy preprocessor.")
+        st.info(f"Preprocessor file not found at {preprocessor_path}. Using dummy preprocessor.")
     
-    debug_info.append("Created dummy preprocessor")
+    # Always create a dummy preprocessor as fallback
+    dummy_preprocessor = DummyPreprocessor()
+    debug_info.append("Created dummy preprocessor as fallback")
     
     # Add preprocessor debug info to sidebar
     st.sidebar.expander("Preprocessor Debug", expanded=False).write("\n".join(debug_info))
     
-    return DummyPreprocessor()
+    # Return the real preprocessor if loaded successfully, otherwise the dummy
+    if preprocessor is not None:
+        return preprocessor
+    else:
+        debug_info.append("Using dummy preprocessor")
+        return dummy_preprocessor
 
 # Load feature names
-@st.cache_data
+# Disable caching temporarily to ensure fresh loading on each run
+# @st.cache_data
 def load_feature_names():
     """Load feature names or create dummy feature names if not found."""
     feature_names_path = os.path.join(PROCESSED_DIR, 'feature_names.txt')
     
+    # Add debug information
+    debug_info = []
+    debug_info.append(f"Feature names path: {feature_names_path}")
+    debug_info.append(f"Feature names file exists: {os.path.exists(feature_names_path)}")
+    
+    # Create dummy feature names as fallback
+    dummy_feature_names = [f'feature_{i}' for i in range(104)]
+    
     # Check if feature names file exists
     if os.path.exists(feature_names_path):
         try:
+            debug_info.append("Attempting to load feature names")
             with open(feature_names_path, 'r') as f:
-                feature_names = f.read().splitlines()
-                if feature_names:
-                    return feature_names
-                else:
-                    st.warning("Feature names file exists but is empty. Using dummy feature names.")
+                feature_names = [line.strip() for line in f.readlines()]
+            
+            if len(feature_names) > 0:
+                debug_info.append(f"Successfully loaded {len(feature_names)} feature names")
+                
+                # Add feature names debug info to sidebar
+                st.sidebar.expander("Feature Names Debug", expanded=False).write("\n".join(debug_info))
+                
+                return feature_names
+            else:
+                debug_info.append("Feature names file was empty")
+                st.warning("Feature names file was empty. Using dummy feature names.")
         except Exception as e:
-            st.error(f"Error loading feature names: {str(e)}")
+            error_msg = str(e)
+            debug_info.append(f"Error loading feature names: {error_msg}")
+            st.warning(f"Error loading feature names: {error_msg}")
     else:
-        st.warning(f"Feature names file not found at {feature_names_path}. Using dummy feature names.")
+        debug_info.append("Feature names file not found")
+        st.info(f"Feature names file not found at {feature_names_path}. Using dummy feature names.")
     
-    # Return dummy feature names matching the dummy preprocessor output dimensions
-    return [f'feature_{i}' for i in range(104)]
+    # Add feature names debug info to sidebar
+    st.sidebar.expander("Feature Names Debug", expanded=False).write("\n".join(debug_info))
+    
+    return dummy_feature_names
 
 # Load data for exploration
 @st.cache_data
