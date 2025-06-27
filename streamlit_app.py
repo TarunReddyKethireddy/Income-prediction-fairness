@@ -3,11 +3,21 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import plotly.express as px
 import joblib
 import os
 import json
-import random
+import requests
+import zipfile
+from io import BytesIO
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+
+# Import helper functions
+from src.utils.streamlit_helpers import (
+    download_and_extract_models, download_individual_models, check_demo_mode,
+    create_dummy_models, create_dummy_preprocessor, create_dummy_data, create_dummy_metrics,
+    load_adult_data_sample, create_example_input, get_column_values
+)
 
 # Set page configuration
 st.set_page_config(
@@ -17,181 +27,375 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Define paths - use absolute paths to avoid any resolution issues
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODELS_DIR = os.path.join(BASE_DIR, 'data', 'models')
+PROCESSED_DIR = os.path.join(BASE_DIR, 'data', 'processed')
+STATIC_DIR = os.path.join(BASE_DIR, 'static', 'images')
+
+# Create directories if they don't exist
+os.makedirs(MODELS_DIR, exist_ok=True)
+os.makedirs(PROCESSED_DIR, exist_ok=True)
+os.makedirs(STATIC_DIR, exist_ok=True)
+
+# Add clear cache button
+if st.sidebar.button("Clear Cache and Reload Models"):
+    st.cache_resource.clear()
+    st.success("Cache cleared! Reloading models...")
+    st.experimental_rerun()
+
+# Debug information (only show in development mode)
+if os.environ.get('STREAMLIT_ENV', 'development') == 'development':
+    st.sidebar.expander("Debug Info", expanded=False).write(f"""  
+    Base Directory: {BASE_DIR}  
+    Models Directory: {MODELS_DIR}  
+    Processed Directory: {PROCESSED_DIR}  
+    Files in Models Dir: {os.listdir(MODELS_DIR) if os.path.exists(MODELS_DIR) else 'Directory not found'}  
+    Files in Processed Dir: {os.listdir(PROCESSED_DIR) if os.path.exists(PROCESSED_DIR) else 'Directory not found'}  
+    """)
+
 # Load models and preprocessor
-@st.cache_resource
+# Use a hash function to ensure cache is invalidated when needed
+@st.cache_resource(hash_funcs={dict: lambda _: None})
 def load_models():
+    """Load trained models or create dummy models if not found."""
     models = {}
-    try:
-        models['logistic_regression'] = joblib.load('data/models/logistic_regression.joblib')
-        models['random_forest'] = joblib.load('data/models/random_forest.joblib')
-        models['fair_demographic_parity'] = joblib.load('data/models/fair_demographic_parity.joblib')
-        models['fair_equalized_odds'] = joblib.load('data/models/fair_equalized_odds.joblib')
-        return models
-    except Exception as e:
-        st.warning(f"Note: Model files not found. Running in demo mode with simulated predictions.")
-        # Create dummy models for demo purposes
+    missing_models = []
+    model_files = {
+        'logistic_regression': os.path.join(MODELS_DIR, 'logistic_regression.joblib'),
+        'random_forest': os.path.join(MODELS_DIR, 'random_forest.joblib'),
+        'fair_demographic_parity': os.path.join(MODELS_DIR, 'fair_demographic_parity.joblib'),
+        'fair_equalized_odds': os.path.join(MODELS_DIR, 'fair_equalized_odds.joblib')
+    }
+    
+    # Add debug information to sidebar
+    debug_info = []
+    debug_info.append(f"Models directory exists: {os.path.exists(MODELS_DIR)}")
+    if os.path.exists(MODELS_DIR):
+        debug_info.append(f"Files in models directory: {os.listdir(MODELS_DIR)}")
+    
+    # Helper function to safely load models with version compatibility handling
+    def safe_load_model(model_path, model_name):
+        try:
+            if not os.path.exists(model_path):
+                debug_info.append(f"Model file not found: {model_path}")
+                return None, f"Model file not found: {model_path}"
+                
+            debug_info.append(f"Attempting to load {model_name} from {model_path}")
+            
+            # For Random Forest models, we need special handling due to version differences
+            if model_name == 'random_forest':
+                try:
+                    # First try normal loading
+                    model = joblib.load(model_path)
+                    debug_info.append(f"Successfully loaded {model_name}")
+                    return model, None
+                except Exception as rf_error:
+                    # If it fails with dtype incompatibility, try a fallback approach
+                    error_msg = str(rf_error)
+                    debug_info.append(f"Error loading {model_name}: {error_msg}")
+                    if 'incompatible dtype' in error_msg:
+                        debug_info.append(f"Random Forest has version compatibility issues")
+                        return None, f"Version compatibility issue: {error_msg}"
+                    else:
+                        return None, error_msg
+            else:
+                # For other models, just try normal loading
+                try:
+                    model = joblib.load(model_path)
+                    debug_info.append(f"Successfully loaded {model_name}")
+                    return model, None
+                except Exception as e:
+                    error_msg = str(e)
+                    debug_info.append(f"Error loading {model_name}: {error_msg}")
+                    return None, error_msg
+        except Exception as e:
+            error_msg = str(e)
+            debug_info.append(f"Unexpected error loading {model_name}: {error_msg}")
+            return None, error_msg
+    
+    # First check if the models directory exists
+    if not os.path.exists(MODELS_DIR):
+        os.makedirs(MODELS_DIR, exist_ok=True)
+        st.warning(f"Models directory not found. Created directory at {MODELS_DIR}")
+        missing_models = list(model_files.keys())
+    else:
+        # Try to load each model individually
+        for name, path in model_files.items():
+            model, error = safe_load_model(path, name)
+            if model is not None:
+                models[name] = model
+                debug_info.append(f"Added {name} to models dictionary")
+            else:
+                st.error(f"Error loading model {name}: {error}")
+                missing_models.append(name)
+    
+    # If any models are missing, create dummy models
+    if missing_models:
+        st.warning(f"Note: Some model files not found: {', '.join(missing_models)}. Using dummy models for these.")
         from sklearn.dummy import DummyClassifier
         
         # Create a more robust dummy classifier with proper dimensions
-        # Generate synthetic features with the right shape
         X_dummy = np.random.rand(100, 10)  # 100 samples, 10 features
         y_dummy = np.random.randint(0, 2, 100)  # Binary target
         
-        # Create and train different dummy models
-        dummy_lr = DummyClassifier(strategy='prior')
-        dummy_lr.fit(X_dummy, y_dummy)
-        
-        dummy_rf = DummyClassifier(strategy='stratified')
-        dummy_rf.fit(X_dummy, y_dummy)
-        
-        # Add predict_proba method to dummy models if they don't have it
-        if not hasattr(dummy_lr, 'predict_proba'):
-            dummy_lr.predict_proba = lambda X: np.column_stack([np.zeros(len(X)), np.ones(len(X))])
-            dummy_rf.predict_proba = lambda X: np.column_stack([np.zeros(len(X)), np.ones(len(X))])
-        
-        models['logistic_regression'] = dummy_lr
-        models['random_forest'] = dummy_rf
-        models['fair_demographic_parity'] = dummy_lr
-        models['fair_equalized_odds'] = dummy_rf
-        return models
+        # Create dummy models for missing ones
+        for name in missing_models:
+            if name in ['logistic_regression', 'fair_demographic_parity']:
+                dummy_model = DummyClassifier(strategy='prior')
+            else:  # random_forest or fair_equalized_odds
+                dummy_model = DummyClassifier(strategy='stratified')
+            dummy_model.fit(X_dummy, y_dummy)
+            models[name] = dummy_model
+            debug_info.append(f"Created dummy model for {name}")
+    
+    # Add model loading debug info to sidebar
+    st.sidebar.expander("Model Loading Debug", expanded=False).write("\n".join(debug_info))
+    
+    return models
 
-@st.cache_resource
+# Use a hash function to ensure cache is invalidated when needed
+@st.cache_resource(hash_funcs={object: lambda _: None})
 def load_preprocessor():
-    try:
-        return joblib.load('data/processed/preprocessor.joblib')
-    except Exception as e:
-        st.warning(f"Note: Preprocessor not found. Running in demo mode with simulated preprocessing.")
-        # Create a more robust dummy preprocessor for demo purposes
-        from sklearn.preprocessing import FunctionTransformer
-        from sklearn.compose import ColumnTransformer
-        from sklearn.pipeline import Pipeline
-        
-        # Create a custom transformer that returns a fixed number of features
-        def transform_input(X):
-            # Convert input to a fixed size feature vector of 10 dimensions
-            # This ensures compatibility with our dummy models
-            if isinstance(X, pd.DataFrame):
-                n_samples = X.shape[0]
-            else:
-                n_samples = len(X)
-            return np.ones((n_samples, 10))  # Return dummy features
-        
-        dummy_preprocessor = FunctionTransformer(transform_input)
-        
-        # Add necessary attributes to mimic a real preprocessor
-        dummy_preprocessor.feature_names_in_ = ['age', 'workclass', 'fnlwgt', 'education', 
-                                            'education-num', 'marital-status', 'occupation', 
-                                            'relationship', 'race', 'sex', 'capital-gain', 
-                                            'capital-loss', 'hours-per-week', 'native-country']
-        
-        # Add transform method if it doesn't exist
-        if not hasattr(dummy_preprocessor, 'transform'):
-            dummy_preprocessor.transform = transform_input
+    """Load trained preprocessor or create dummy preprocessor if not found."""
+    preprocessor_path = os.path.join(PROCESSED_DIR, 'preprocessor.joblib')
+    
+    # Add debug information
+    debug_info = []
+    debug_info.append(f"Preprocessor path: {preprocessor_path}")
+    debug_info.append(f"Processed directory exists: {os.path.exists(PROCESSED_DIR)}")
+    if os.path.exists(PROCESSED_DIR):
+        debug_info.append(f"Files in processed directory: {os.listdir(PROCESSED_DIR)}")
+    debug_info.append(f"Preprocessor file exists: {os.path.exists(preprocessor_path)}")
+    
+    # First check if the processed directory exists
+    if not os.path.exists(PROCESSED_DIR):
+        os.makedirs(PROCESSED_DIR, exist_ok=True)
+        st.warning(f"Processed directory not found. Created directory at {PROCESSED_DIR}")
+        debug_info.append("Created processed directory")
+    
+    # Check if preprocessor file exists
+    if os.path.exists(preprocessor_path):
+        try:
+            debug_info.append("Attempting to load preprocessor")
+            preprocessor = joblib.load(preprocessor_path)
+            debug_info.append("Successfully loaded preprocessor")
             
-        return dummy_preprocessor
+            # Add preprocessor debug info to sidebar
+            st.sidebar.expander("Preprocessor Debug", expanded=False).write("\n".join(debug_info))
+            
+            return preprocessor
+        except Exception as e:
+            error_msg = str(e)
+            debug_info.append(f"Error loading preprocessor: {error_msg}")
+            st.error(f"Error loading preprocessor: {error_msg}")
+    else:
+        debug_info.append("Preprocessor file not found")
+        st.warning(f"Preprocessor file not found at {preprocessor_path}. Using dummy preprocessor.")
+    
+    # Create a dummy preprocessor
+    class DummyPreprocessor:
+        def transform(self, X):
+            # Create a simple one-hot encoding simulation
+            # Return a feature array with the right number of features
+            n_samples = len(X)
+            # Create a feature array with 104 features (typical for Adult dataset after preprocessing)
+            return np.random.rand(n_samples, 104)
+            
+        def get_feature_names_out(self):
+            # Return dummy feature names
+            return [f'feature_{i}' for i in range(104)]
+    
+    debug_info.append("Created dummy preprocessor")
+    
+    # Add preprocessor debug info to sidebar
+    st.sidebar.expander("Preprocessor Debug", expanded=False).write("\n".join(debug_info))
+    
+    return DummyPreprocessor()
 
 # Load feature names
 @st.cache_data
 def load_feature_names():
-    try:
-        with open('data/processed/feature_names.txt', 'r') as f:
-            return [line.strip() for line in f.readlines()]
-    except Exception as e:
-        # Return default feature names if file not found
-        return ['age', 'workclass', 'education', 'education-num', 'marital-status',
-                'occupation', 'relationship', 'race', 'sex', 'capital-gain',
-                'capital-loss', 'hours-per-week', 'native-country']
+    """Load feature names or create dummy feature names if not found."""
+    feature_names_path = os.path.join(PROCESSED_DIR, 'feature_names.txt')
+    
+    # Check if feature names file exists
+    if os.path.exists(feature_names_path):
+        try:
+            with open(feature_names_path, 'r') as f:
+                feature_names = f.read().splitlines()
+                if feature_names:
+                    return feature_names
+                else:
+                    st.warning("Feature names file exists but is empty. Using dummy feature names.")
+        except Exception as e:
+            st.error(f"Error loading feature names: {str(e)}")
+    else:
+        st.warning(f"Feature names file not found at {feature_names_path}. Using dummy feature names.")
+    
+    # Return dummy feature names matching the dummy preprocessor output dimensions
+    return [f'feature_{i}' for i in range(104)]
 
 # Load data for exploration
 @st.cache_data
 def load_data():
-    try:
-        # Load raw data for exploration
-        column_names = [
-            'age', 'workclass', 'fnlwgt', 'education', 'education-num', 'marital-status',
-            'occupation', 'relationship', 'race', 'sex', 'capital-gain', 'capital-loss',
-            'hours-per-week', 'native-country', 'income'
-        ]
-        train_data = pd.read_csv('data/adult.data', header=None, names=column_names, skipinitialspace=True)
-        test_data = pd.read_csv('data/adult.test', header=None, names=column_names, skipinitialspace=True, skiprows=1)
-        
-        # Clean income column
-        test_data['income'] = test_data['income'].str.replace('.', '')
-        
-        # Combine data for exploration
-        data = pd.concat([train_data, test_data], axis=0)
-        return data
-    except Exception as e:
-        st.warning("Using sample data for demo mode.")
-        # Create sample data for demo mode
-        np.random.seed(42)
-        n_samples = 1000
-        
-        # Generate synthetic data
-        data = pd.DataFrame({
-            'age': np.random.randint(18, 90, n_samples),
-            'workclass': np.random.choice(['Private', 'Self-emp-not-inc', 'Local-gov', 'State-gov', 'Federal-gov'], n_samples),
-            'education': np.random.choice(['HS-grad', 'Some-college', 'Bachelors', 'Masters', 'Doctorate'], n_samples),
-            'education-num': np.random.randint(8, 16, n_samples),
-            'marital-status': np.random.choice(['Married-civ-spouse', 'Never-married', 'Divorced', 'Separated'], n_samples),
-            'occupation': np.random.choice(['Prof-specialty', 'Exec-managerial', 'Tech-support', 'Sales', 'Craft-repair'], n_samples),
-            'relationship': np.random.choice(['Husband', 'Wife', 'Own-child', 'Not-in-family'], n_samples),
-            'race': np.random.choice(['White', 'Black', 'Asian-Pac-Islander', 'Amer-Indian-Eskimo', 'Other'], n_samples),
-            'sex': np.random.choice(['Male', 'Female'], n_samples),
-            'capital-gain': np.random.choice([0, 0, 0, 0, *np.random.randint(1000, 20000, 50)], n_samples),
-            'capital-loss': np.random.choice([0, 0, 0, 0, *np.random.randint(500, 4000, 50)], n_samples),
-            'hours-per-week': np.random.randint(20, 80, n_samples),
-            'native-country': np.random.choice(['United-States', 'Mexico', 'Philippines', 'Germany', 'Canada'], n_samples),
-            'income': np.random.choice(['>50K', '<=50K'], n_samples, p=[0.24, 0.76])  # Approximate class distribution
-        })
-        
-        # Create correlations similar to the real dataset
-        # Higher education and certain occupations correlate with higher income
-        for i in range(n_samples):
-            if data.loc[i, 'education-num'] >= 13 and data.loc[i, 'occupation'] in ['Prof-specialty', 'Exec-managerial']:
-                data.loc[i, 'income'] = np.random.choice(['>50K', '<=50K'], 1, p=[0.6, 0.4])[0]
-            
-            # Gender bias in the original dataset
-            if data.loc[i, 'sex'] == 'Male':
-                data.loc[i, 'income'] = np.random.choice(['>50K', '<=50K'], 1, p=[0.3, 0.7])[0]
-            else:
-                data.loc[i, 'income'] = np.random.choice(['>50K', '<=50K'], 1, p=[0.1, 0.9])[0]
-        
-        return data
+    """Load the Adult Income Dataset or create synthetic data if not found."""
+    return load_adult_data_sample()
 
 # Load performance metrics
 @st.cache_data
 def load_performance_metrics():
+    """Load performance metrics or create dummy metrics if not found."""
     try:
-        performance_df = pd.read_csv('data/models/model_performance.csv', index_col=0)
+        performance_df = pd.read_csv(os.path.join(MODELS_DIR, 'model_performance.csv'), index_col=0)
         return performance_df
     except Exception as e:
-        # Create dummy performance metrics for demo mode
-        models_list = ['logistic_regression', 'random_forest', 'fair_demographic_parity', 'fair_equalized_odds']
-        metrics = ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']
-        data = {
-            'accuracy': [0.85, 0.87, 0.83, 0.84],
-            'precision': [0.75, 0.78, 0.72, 0.73],
-            'recall': [0.65, 0.68, 0.70, 0.71],
-            'f1': [0.70, 0.73, 0.71, 0.72],
-            'roc_auc': [0.82, 0.85, 0.80, 0.81]
+        st.warning("Note: Performance metrics file not found. Using dummy metrics for demo.")
+        # Create dummy metrics for demo mode
+        performance_data = {
+            'logistic_regression': {
+                'accuracy': 0.82, 'precision': 0.65, 'recall': 0.55, 'f1': 0.60, 'roc_auc': 0.85
+            },
+            'random_forest': {
+                'accuracy': 0.84, 'precision': 0.70, 'recall': 0.60, 'f1': 0.65, 'roc_auc': 0.88
+            },
+            'fair_demographic_parity': {
+                'accuracy': 0.80, 'precision': 0.62, 'recall': 0.58, 'f1': 0.60, 'roc_auc': 0.83
+            },
+            'fair_equalized_odds': {
+                'accuracy': 0.81, 'precision': 0.63, 'recall': 0.59, 'f1': 0.61, 'roc_auc': 0.84
+            }
         }
-        return pd.DataFrame(data, index=models_list)
+        return pd.DataFrame(performance_data).T
 
 # Load fairness metrics
 @st.cache_data
 def load_fairness_metrics():
+    """Load fairness metrics or create dummy metrics if not found."""
     try:
-        fairness_df = pd.read_csv('data/models/fairness_metrics.csv', index_col=0)
+        fairness_df = pd.read_csv(os.path.join(MODELS_DIR, 'fairness_metrics.csv'), index_col=0)
         return fairness_df
     except Exception as e:
+        st.warning("Note: Fairness metrics file not found. Using dummy metrics for demo.")
         # Create dummy fairness metrics for demo mode
-        models_list = ['logistic_regression', 'random_forest', 'fair_demographic_parity', 'fair_equalized_odds']
-        data = {
-            'demographic_parity_difference': [0.18, 0.20, 0.05, 0.08],
-            'equalized_odds_difference': [0.15, 0.17, 0.12, 0.04]
+        fairness_data = {
+            'logistic_regression': {
+                'demographic_parity_difference': 0.15, 'equalized_odds_difference': 0.18
+            },
+            'random_forest': {
+                'demographic_parity_difference': 0.18, 'equalized_odds_difference': 0.20
+            },
+            'fair_demographic_parity': {
+                'demographic_parity_difference': 0.05, 'equalized_odds_difference': 0.12
+            },
+            'fair_equalized_odds': {
+                'demographic_parity_difference': 0.10, 'equalized_odds_difference': 0.06
+            }
         }
-        return pd.DataFrame(data, index=models_list)
+        return pd.DataFrame(fairness_data).T
+
+# Define prediction function
+def predict_income(input_data, model_name='logistic_regression'):
+    """Make income prediction using the selected model.
+    
+    Args:
+        input_data: DataFrame or dict with input features
+        model_name: Name of the model to use for prediction
+        
+    Returns:
+        tuple: (prediction result, probability or error message)
+    """
+    # Add debug information
+    debug_info = []
+    debug_info.append(f"Predicting with model: {model_name}")
+    
+    # Ensure input_data is a DataFrame
+    if isinstance(input_data, dict):
+        input_data = pd.DataFrame([input_data])
+        debug_info.append("Converted input dict to DataFrame")
+    
+    # Get the selected model
+    model = models.get(model_name)
+    if model is None:
+        debug_info.append(f"Model {model_name} not found in models dictionary")
+        st.sidebar.expander("Prediction Debug", expanded=False).write("\n".join(debug_info))
+        return None, "Model not found"
+    
+    debug_info.append(f"Model type: {type(model).__name__}")
+    
+    try:
+        # Check if preprocessor is available
+        if preprocessor is None:
+            debug_info.append("Preprocessor is None")
+            st.sidebar.expander("Prediction Debug", expanded=False).write("\n".join(debug_info))
+            return None, "Preprocessor not loaded correctly"
+        
+        # Preprocess the input data
+        debug_info.append("Transforming input data with preprocessor")
+        try:
+            X = preprocessor.transform(input_data)
+            debug_info.append(f"Transformed data shape: {X.shape if hasattr(X, 'shape') else 'unknown'}")
+        except Exception as preprocess_error:
+            debug_info.append(f"Error in preprocessing: {str(preprocess_error)}")
+            st.sidebar.expander("Prediction Debug", expanded=False).write("\n".join(debug_info))
+            return None, f"Preprocessing error: {str(preprocess_error)}"
+        
+        # Convert sparse matrix to dense if needed
+        if hasattr(X, 'toarray'):
+            debug_info.append("Converting sparse matrix to dense array")
+            X = X.toarray()
+        
+        # Handle fairness-aware models differently
+        if model_name.startswith('fair_'):
+            debug_info.append("Using fairness-aware model prediction logic")
+            # First try to get predictions directly
+            try:
+                prediction = model.predict(X)[0]
+                debug_info.append(f"Raw prediction: {prediction}")
+            except Exception as predict_error:
+                debug_info.append(f"Error in model.predict: {str(predict_error)}")
+                st.sidebar.expander("Prediction Debug", expanded=False).write("\n".join(debug_info))
+                return None, f"Prediction error: {str(predict_error)}"
+            
+            # For probability, check if the model has a predict_proba method
+            if hasattr(model, 'predict_proba'):
+                try:
+                    probability = model.predict_proba(X)[0][1]
+                    debug_info.append(f"Probability from predict_proba: {probability}")
+                except (AttributeError, IndexError, ValueError) as e:
+                    # If predict_proba fails, use the prediction as a binary outcome
+                    probability = float(prediction)
+                    debug_info.append(f"Using prediction as probability: {probability}")
+            else:
+                # If no predict_proba method, use the prediction as a binary outcome
+                probability = float(prediction)
+                debug_info.append(f"No predict_proba method, using prediction as probability: {probability}")
+        else:
+            debug_info.append("Using standard model prediction logic")
+            # Standard scikit-learn models
+            try:
+                prediction = model.predict(X)[0]
+                debug_info.append(f"Raw prediction: {prediction}")
+                probability = model.predict_proba(X)[0][1]
+                debug_info.append(f"Probability: {probability}")
+            except Exception as predict_error:
+                debug_info.append(f"Error in model prediction: {str(predict_error)}")
+                st.sidebar.expander("Prediction Debug", expanded=False).write("\n".join(debug_info))
+                return None, f"Prediction error: {str(predict_error)}"
+        
+        # Convert prediction to string result
+        if isinstance(prediction, (int, np.integer)):
+            result = ">50K" if prediction == 1 else "<=50K"
+        else:
+            result = str(prediction)
+        
+        debug_info.append(f"Final result: {result}, Probability: {probability}")
+        st.sidebar.expander("Prediction Debug", expanded=False).write("\n".join(debug_info))
+        return result, probability
+    except Exception as e:
+        debug_info.append(f"Unexpected error: {str(e)}")
+        st.sidebar.expander("Prediction Debug", expanded=False).write("\n".join(debug_info))
+        return None, f"Error making prediction: {str(e)}"
 
 # Load all resources
 models = load_models()
@@ -201,14 +405,8 @@ performance_df = load_performance_metrics()
 fairness_df = load_fairness_metrics()
 data = load_data()
 
-# Check if running in demo mode and provide file upload option
-demo_mode = False
-try:
-    # Try to access one of the model files to determine if we're in demo mode
-    with open('data/models/logistic_regression.joblib', 'rb') as f:
-        pass  # File exists, not in demo mode
-except FileNotFoundError:
-    demo_mode = True
+# Check if we're in demo mode
+demo_mode = check_demo_mode()
 
 # Define sidebar navigation
 st.sidebar.title("Navigation")
@@ -217,49 +415,99 @@ st.sidebar.title("Navigation")
 if demo_mode:
     st.sidebar.warning("⚠️ Running in demo mode with simulated data and predictions")
     
-    # Create directories if they don't exist
-    import os
-    os.makedirs('data/models', exist_ok=True)
-    os.makedirs('data/processed', exist_ok=True)
-    
     # Add option to download models from cloud storage
-    st.sidebar.markdown("### Download Models from Cloud")
+    st.sidebar.markdown("### Download Models from Cloud Storage")
+    st.sidebar.markdown("You can download pre-trained models from cloud storage:")
     
-    download_option = st.sidebar.radio(
-        "Select download method:",
-        ["Direct URL to zip file", "Individual model files"]
-    )
+    # Option to download all models as a zip
+    st.sidebar.markdown("#### Option 1: Download All Models as ZIP")
+    zip_url = st.sidebar.text_input("Enter ZIP file URL")
     
-    if download_option == "Direct URL to zip file":
-        zip_url = st.sidebar.text_input("Enter URL to models zip file")
+    if zip_url and st.sidebar.button("Download and Extract", key="download_zip"):
+        try:
+            with st.sidebar.spinner("Downloading and extracting models..."):
+                success = download_and_extract_models(zip_url)
+                
+                if success:
+                    st.sidebar.success("✅ Models downloaded and extracted successfully!")
+                    st.experimental_rerun()
+                else:
+                    st.sidebar.error("❌ Failed to download or extract models.")
+        except Exception as e:
+            st.sidebar.error(f"❌ Error: {str(e)}")
+    
+    # Option to upload model files directly
+    st.sidebar.markdown("#### Option 2: Upload Model Files Directly")
+    st.sidebar.markdown("Upload trained model files:")
+    
+    # Create directories if they don't exist
+    os.makedirs(MODELS_DIR, exist_ok=True)
+    os.makedirs(PROCESSED_DIR, exist_ok=True)
+    
+    # Upload logistic regression model
+    lr_model = st.sidebar.file_uploader("Upload Logistic Regression Model", type=['joblib'], key="lr_upload")
+    if lr_model is not None:
+        with open(os.path.join(MODELS_DIR, 'logistic_regression.joblib'), 'wb') as f:
+            f.write(lr_model.getbuffer())
+        st.sidebar.success("✅ Logistic Regression model uploaded successfully!")
+    
+    # Upload random forest model
+    rf_model = st.sidebar.file_uploader("Upload Random Forest Model", type=['joblib'], key="rf_upload")
+    if rf_model is not None:
+        with open(os.path.join(MODELS_DIR, 'random_forest.joblib'), 'wb') as f:
+            f.write(rf_model.getbuffer())
+        st.sidebar.success("✅ Random Forest model uploaded successfully!")
+    
+    # Upload fair demographic parity model
+    dp_model = st.sidebar.file_uploader("Upload Fair Demographic Parity Model", type=['joblib'], key="dp_upload")
+    if dp_model is not None:
+        with open(os.path.join(MODELS_DIR, 'fair_demographic_parity.joblib'), 'wb') as f:
+            f.write(dp_model.getbuffer())
+        st.sidebar.success("✅ Fair Demographic Parity model uploaded successfully!")
+    
+    # Upload fair equalized odds model
+    eo_model = st.sidebar.file_uploader("Upload Fair Equalized Odds Model", type=['joblib'], key="eo_upload")
+    if eo_model is not None:
+        with open(os.path.join(MODELS_DIR, 'fair_equalized_odds.joblib'), 'wb') as f:
+            f.write(eo_model.getbuffer())
+        st.sidebar.success("✅ Fair Equalized Odds model uploaded successfully!")
+    
+    # Upload preprocessor
+    preprocessor_file = st.sidebar.file_uploader("Upload Preprocessor", type=['joblib'], key="preprocessor_upload")
+    if preprocessor_file is not None:
+        with open(os.path.join(PROCESSED_DIR, 'preprocessor.joblib'), 'wb') as f:
+            f.write(preprocessor_file.getbuffer())
+        st.sidebar.success("✅ Preprocessor uploaded successfully!")
+    
+    # Upload feature names
+    feature_names_file = st.sidebar.file_uploader("Upload Feature Names", type=['txt'], key="feature_names_upload")
+    if feature_names_file is not None:
+        with open(os.path.join(PROCESSED_DIR, 'feature_names.txt'), 'wb') as f:
+            f.write(feature_names_file.getbuffer())
+        st.sidebar.success("✅ Feature names uploaded successfully!")
+    
+    # Add a button to reload the app after uploading files
+    if st.sidebar.button("Reload App with Uploaded Models"):
+        st.experimental_rerun()
         
-        if zip_url and st.sidebar.button("Download & Extract Models", key="download_zip"):
-            try:
-                from extract_models import download_and_extract_models
-                with st.spinner("Downloading and extracting model files..."):
-                    success = download_and_extract_models(zip_url)
-                    if success:
-                        st.sidebar.success("✅ Models downloaded and extracted successfully!")
+    # Option to download individual model files
+    st.sidebar.markdown("#### Option 2: Download Individual Model Files")
+    cloud_url = st.sidebar.text_input("Enter cloud storage base URL (must end with '/')")
+    
+    if cloud_url and st.sidebar.button("Download Individual Models", key="download_individual"):
+        try:
+            with st.sidebar.spinner("Downloading individual model files..."):
+                success = download_individual_models(cloud_url)
+                
+                if success:
+                    st.sidebar.success("✅ Models downloaded successfully!")
+                    st.sidebar.info("Please reload the app to use the downloaded models.")
+                    if st.sidebar.button("Reload App", key="reload_after_individual"):
                         st.experimental_rerun()
-                    else:
-                        st.sidebar.error("❌ Failed to download or extract models. Check the URL and try again.")
-            except Exception as e:
-                st.sidebar.error(f"Error: {e}")
-    else:
-        cloud_url = st.sidebar.text_input("Enter cloud storage base URL (must end with '/')")
-        
-        if cloud_url and st.sidebar.button("Download Individual Models", key="download_individual"):
-            try:
-                from download_models import download_all_models
-                with st.spinner("Downloading model files from cloud storage..."):
-                    success = download_all_models(cloud_url)
-                    if success:
-                        st.sidebar.success("✅ All model files downloaded successfully!")
-                        st.experimental_rerun()
-                    else:
-                        st.sidebar.error("❌ Some files failed to download. Check the URL and try again.")
-            except Exception as e:
-                st.sidebar.error(f"Error downloading models: {e}")
+                else:
+                    st.sidebar.error("❌ Failed to download models. Check the URL and try again.")
+        except Exception as e:
+            st.sidebar.error(f"Error: {e}")
     
     # Or upload files manually
     st.sidebar.markdown("### Upload Model Files Manually")
@@ -366,160 +614,152 @@ if page == "Home":
     st.title("Income Prediction with Fairness-Aware Machine Learning")
     st.write("""
     This application demonstrates income prediction using both traditional and fairness-aware 
-    machine learning models. Enter your information below to get a prediction.
+    machine learning models. Enter your information below to get predictions from different models.
     """)
     
-    # Create columns for form layout
-    col1, col2 = st.columns(2)
+    # Get example input values
+    example_input = create_example_input()
     
-    with col1:
-        st.subheader("Personal Information")
-        age = st.number_input("Age", min_value=17, max_value=90, value=30)
-        sex = st.selectbox("Sex", ["Male", "Female"])
-        race = st.selectbox("Race", ["White", "Black", "Asian-Pac-Islander", "Amer-Indian-Eskimo", "Other"])
-        education = st.selectbox("Education", [
-            "Bachelors", "HS-grad", "11th", "Masters", "9th", 
-            "Some-college", "Assoc-acdm", "Assoc-voc", "7th-8th", 
-            "Doctorate", "Prof-school", "5th-6th", "10th", "1st-4th", 
-            "Preschool", "12th"
-        ])
-        education_num = st.number_input("Education (years)", min_value=1, max_value=16, value=13)
-        marital_status = st.selectbox("Marital Status", [
-            "Married-civ-spouse", "Divorced", "Never-married", "Separated", 
-            "Widowed", "Married-spouse-absent", "Married-AF-spouse"
-        ])
-    
-    with col2:
-        st.subheader("Employment Information")
-        workclass = st.selectbox("Work Class", [
-            "Private", "Self-emp-not-inc", "Self-emp-inc", "Federal-gov", 
-            "Local-gov", "State-gov", "Without-pay", "Never-worked"
-        ])
-        occupation = st.selectbox("Occupation", [
-            "Tech-support", "Craft-repair", "Other-service", "Sales", 
-            "Exec-managerial", "Prof-specialty", "Handlers-cleaners", 
-            "Machine-op-inspct", "Adm-clerical", "Farming-fishing", 
-            "Transport-moving", "Priv-house-serv", "Protective-serv", "Armed-Forces"
-        ])
-        hours_per_week = st.number_input("Hours per Week", min_value=1, max_value=100, value=40)
-        capital_gain = st.number_input("Capital Gain", min_value=0, max_value=100000, value=0)
-        capital_loss = st.number_input("Capital Loss", min_value=0, max_value=10000, value=0)
-        relationship = st.selectbox("Relationship", [
-            "Wife", "Own-child", "Husband", "Not-in-family", 
-            "Other-relative", "Unmarried"
-        ])
-        native_country = st.selectbox("Native Country", [
-            "United-States", "Cambodia", "England", "Puerto-Rico", "Canada", 
-            "Germany", "Outlying-US(Guam-USVI-etc)", "India", "Japan", "Greece", 
-            "South", "China", "Cuba", "Iran", "Honduras", "Philippines", "Italy", 
-            "Poland", "Jamaica", "Vietnam", "Mexico", "Portugal", "Ireland", 
-            "France", "Dominican-Republic", "Laos", "Ecuador", "Taiwan", "Haiti", 
-            "Columbia", "Hungary", "Guatemala", "Nicaragua", "Scotland", "Thailand", 
-            "Yugoslavia", "El-Salvador", "Trinadad&Tobago", "Peru", "Hong", "Holand-Netherlands"
-        ])
-    
-    # Model selection
-    st.subheader("Model Selection")
-    model_choice = st.selectbox(
-        "Select Model",
-        [
-            "Logistic Regression (Baseline)", 
-            "Random Forest (Baseline)",
-            "Fair Demographic Parity",
-            "Fair Equalized Odds"
-        ]
-    )
-    
-    model_mapping = {
-        "Logistic Regression (Baseline)": "logistic_regression",
-        "Random Forest (Baseline)": "random_forest",
-        "Fair Demographic Parity": "fair_demographic_parity",
-        "Fair Equalized Odds": "fair_equalized_odds"
-    }
-    
-    # Make prediction
-    if st.button("Predict Income"):
-        if models and preprocessor:
-            # Create a dataframe with the input values
-            input_data = pd.DataFrame({
-                'age': [age],
-                'workclass': [workclass],
-                'fnlwgt': [1],  # Not used in prediction
-                'education': [education],
-                'education-num': [education_num],
-                'marital-status': [marital_status],
-                'occupation': [occupation],
-                'relationship': [relationship],
-                'race': [race],
-                'sex': [sex],
-                'capital-gain': [capital_gain],
-                'capital-loss': [capital_loss],
-                'hours-per-week': [hours_per_week],
-                'native-country': [native_country]
-            })
-            
-            # Preprocess the input data
-            input_processed = preprocessor.transform(input_data)
-            if hasattr(input_processed, 'toarray'):
-                input_processed = input_processed.toarray()
-            
-            # Get the selected model
-            selected_model_key = model_mapping[model_choice]
-            selected_model = models[selected_model_key]
-            
-            # Make prediction
-            prediction = selected_model.predict(input_processed)[0]
-            
-            # Try to get probability if available
-            probability = None
-            if hasattr(selected_model, 'predict_proba'):
+    # Create a form for user input
+    with st.form("prediction_form"):
+        st.subheader("Enter Your Information")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            age = st.number_input("Age", min_value=17, max_value=90, value=example_input['age'])
+            education_num = st.slider("Education (years)", min_value=1, max_value=16, value=example_input['education-num'], 
+                                     help="1=Preschool, 16=Doctorate")
+            hours_per_week = st.slider("Hours per Week", min_value=1, max_value=100, value=example_input['hours-per-week'])
+            column_values = get_column_values()
+            workclass = st.selectbox("Work Class", 
+                                     column_values['workclass'],
+                                     index=column_values['workclass'].index(example_input['workclass']))
+            education = st.selectbox("Education Level", 
+                                   column_values['education'],
+                                   index=column_values['education'].index(example_input['education']))
+        
+        with col2:
+            # Final Weight is hidden but we'll still use the default value from example_input
+            fnlwgt = example_input['fnlwgt']  # Using the default value without showing the input
+            capital_gain = st.number_input("Capital Gain", min_value=0, max_value=100000, value=example_input['capital-gain'])
+            capital_loss = st.number_input("Capital Loss", min_value=0, max_value=10000, value=example_input['capital-loss'])
+            occupation = st.selectbox("Occupation", 
+                                     column_values['occupation'],
+                                     index=column_values['occupation'].index(example_input['occupation']))
+            marital_status = st.selectbox("Marital Status", 
+                                         column_values['marital-status'],
+                                         index=column_values['marital-status'].index(example_input['marital-status']))
+        
+        # Model selection
+        st.subheader("Model Selection")
+        model_choice = st.selectbox(
+            "Select Model",
+            [
+                "Logistic Regression (Baseline)", 
+                "Random Forest (Baseline)",
+                "Fair Demographic Parity",
+                "Fair Equalized Odds"
+            ]
+        )
+        
+        model_mapping = {
+            "Logistic Regression (Baseline)": "logistic_regression",
+            "Random Forest (Baseline)": "random_forest",
+            "Fair Demographic Parity": "fair_demographic_parity",
+            "Fair Equalized Odds": "fair_equalized_odds"
+        }
+        
+        # Make prediction
+        if st.form_submit_button("Predict Income"):
+            if models and preprocessor:
+                # Create a dataframe with the input values
+                input_data = pd.DataFrame({
+                    'age': [age],
+                    'workclass': [workclass],
+                    'fnlwgt': [fnlwgt],  # Not used in prediction
+                    'education': [education],
+                    'education-num': [education_num],
+                    'marital-status': [marital_status],
+                    'occupation': [occupation],
+                    'capital-gain': [capital_gain],
+                    'capital-loss': [capital_loss],
+                    'hours-per-week': [hours_per_week],
+                    'relationship': [st.selectbox("Relationship", 
+                                    column_values['relationship'],
+                                    index=column_values['relationship'].index(example_input['relationship']))],
+                    'race': [st.selectbox("Race", 
+                                    column_values['race'],
+                                    index=column_values['race'].index(example_input['race']))],
+                    'sex': [st.selectbox("Sex", 
+                                    column_values['sex'],
+                                    index=column_values['sex'].index(example_input['sex']))],
+                    'native-country': [st.selectbox("Native Country", 
+                                    column_values['native-country'],
+                                    index=column_values['native-country'].index(example_input['native-country']))]
+                })
+                
+                # Preprocess the input data
                 try:
-                    probability = selected_model.predict_proba(input_processed)[0, 1]
-                except (AttributeError, IndexError):
-                    pass
-            
-            # Display result
-            st.subheader("Prediction Result")
-            result_container = st.container(border=True)
-            with result_container:
-                if prediction == 1:
-                    st.success(f"Prediction: Income > $50K")
-                    if probability is not None:
-                        st.progress(float(probability), text=f"Confidence: {probability:.2%}")
-                    st.balloons()
-                else:
-                    st.info(f"Prediction: Income <= $50K")
-                    if probability is not None:
-                        st.progress(float(1-probability), text=f"Confidence: {1-probability:.2%}")
-                
-                # Show model information
-                st.write(f"**Model used:** {model_choice}")
-                
-                # Show model performance metrics if available
-                if performance_df is not None and selected_model_key in performance_df.index:
-                    metrics = performance_df.loc[selected_model_key]
-                    st.write("**Model Performance Metrics:**")
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Accuracy", f"{metrics['accuracy']:.4f}")
-                    with col2:
-                        st.metric("Precision", f"{metrics['precision']:.4f}")
-                    with col3:
-                        st.metric("Recall", f"{metrics['recall']:.4f}")
-                
-                # Show fairness metrics if available
-                if fairness_df is not None and selected_model_key in fairness_df.index:
-                    fairness = fairness_df.loc[selected_model_key]
-                    st.write("**Fairness Metrics:**")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("Demographic Parity Diff", f"{fairness['demographic_parity_difference']:.4f}", 
-                                 delta=-fairness['demographic_parity_difference'], delta_color="inverse")
-                    with col2:
-                        st.metric("Equalized Odds Diff", f"{fairness['equalized_odds_difference']:.4f}", 
-                                 delta=-fairness['equalized_odds_difference'], delta_color="inverse")
+                    input_processed = preprocessor.transform(input_data)
+                    if hasattr(input_processed, 'toarray'):
+                        input_processed = input_processed.toarray()
                     
-                    st.info("Lower values for fairness metrics indicate less bias in the model.")
+                    # Make prediction
+                    selected_model_key = model_mapping[model_choice]
+                    prediction, probability = predict_income(input_data, model_name=selected_model_key)
+                    
+                    # Display result
+                    st.subheader("Prediction Result")
+                    result_container = st.container(border=True)
+                    with result_container:
+                        if prediction == '>50K':
+                            st.success(f"Prediction: Income > $50K")
+                            if probability is not None:
+                                st.progress(float(probability), text=f"Confidence: {probability:.2%}")
+                            st.balloons()
+                        elif prediction == '<=50K':
+                            st.warning(f"Prediction: Income <= $50K")
+                            if probability is not None:
+                                st.progress(1 - float(probability), text=f"Confidence: {1-probability:.2%}")
+                        elif prediction is None:
+                            st.error(f"Error: {probability}")
+                        else:
+                            st.info(f"Prediction: {prediction}")
+                            if probability is not None:
+                                st.progress(float(probability), text=f"Confidence: {probability:.2%}")
+                        
+                        # Show model information
+                        st.write(f"**Model used:** {model_choice}")
+                        
+                        # Show model performance metrics if available
+                        if performance_df is not None and selected_model_key in performance_df.index:
+                            metrics = performance_df.loc[selected_model_key]
+                            st.write("**Model Performance Metrics:**")
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Accuracy", f"{metrics['accuracy']:.4f}")
+                            with col2:
+                                st.metric("Precision", f"{metrics['precision']:.4f}")
+                            with col3:
+                                st.metric("Recall", f"{metrics['recall']:.4f}")
+                        
+                        # Show fairness metrics if available
+                        if fairness_df is not None and selected_model_key in fairness_df.index:
+                            fairness = fairness_df.loc[selected_model_key]
+                            st.write("**Fairness Metrics:**")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("Demographic Parity Difference", f"{fairness['demographic_parity_difference']:.4f}")
+                            with col2:
+                                st.metric("Equalized Odds Difference", f"{fairness['equalized_odds_difference']:.4f}")
+                except Exception as e:
+                    st.error(f"Error making prediction: {e}")
+                    st.info("This might be due to incompatible feature names or preprocessing. Try using a different model or check the preprocessing pipeline.")
+            else:
+                st.error("Models or preprocessor not loaded correctly. Please check the model files.")
+                if demo_mode:
+                    st.info("You are currently in demo mode. Upload model files or download them from cloud storage to use actual models.")
                 
                 # Generate dynamic visualization based on input
                 st.subheader("Feature Importance for This Prediction")
@@ -532,12 +772,12 @@ if page == "Home":
                     'Hours per Week': hours_per_week / 100,
                     'Capital Gain': min(1.0, capital_gain / 10000),  # Cap at 1.0
                     'Capital Loss': min(1.0, capital_loss / 5000),
-                    'Gender': 0.7 if sex == 'Male' else 0.3,  # Simplified representation
+                    'Gender': 0.7 if input_data['sex'][0] == 'Male' else 0.3,  # Simplified representation
                     'Race': {'White': 0.2, 'Black': 0.3, 'Asian-Pac-Islander': 0.4, 
-                             'Amer-Indian-Eskimo': 0.5, 'Other': 0.6}.get(race, 0.5),
-                    'Marital Status': 0.8 if 'Married' in marital_status else 0.4,
+                             'Amer-Indian-Eskimo': 0.5, 'Other': 0.6}.get(input_data['race'][0], 0.5),
+                    'Marital Status': 0.8 if 'Married' in input_data['marital-status'][0] else 0.4,
                     'Occupation': {'Exec-managerial': 0.9, 'Prof-specialty': 0.85, 
-                                  'Tech-support': 0.7}.get(occupation, 0.5)
+                                  'Tech-support': 0.7}.get(input_data['occupation'][0], 0.5)
                 }
                 
                 # Create a bar chart of feature values
@@ -575,7 +815,8 @@ if page == "Home":
                 
                 # Highlight the user's gender
                 colors = ['lightblue', 'lightblue']
-                if sex == 'Male':
+                user_sex = input_data['sex'][0]
+                if user_sex == 'Male':
                     colors[0] = '#4CAF50'
                 else:
                     colors[1] = '#4CAF50'
@@ -589,7 +830,7 @@ if page == "Home":
                 st.pyplot(fig)
                 
                 # Add explanation about fairness
-                if sex == 'Male':
+                if user_sex == 'Male':
                     st.write("Males are historically more likely to have income > 50K in this dataset.")
                     if selected_model_key.startswith('fair_'):
                         st.write("The fairness-aware model attempts to mitigate this bias.")
@@ -607,22 +848,24 @@ if page == "Home":
                 
                 with col1:
                     st.write("**If education level was higher:**")
-                    if education_num < 13:
+                    user_education = input_data['education-num'][0]
+                    if user_education < 13:
                         st.write("With a college degree, prediction likelihood for >50K would increase significantly.")
                     else:
                         st.write("You already have higher education, which positively impacts the prediction.")
                 
                 with col2:
                     st.write("**If hours worked changed:**")
-                    if hours_per_week < 40:
+                    user_hours = input_data['hours-per-week'][0]
+                    if user_hours < 40:
                         st.write("Working full-time (40+ hours) would increase likelihood of >50K income.")
-                    elif hours_per_week > 60:
+                    elif user_hours > 60:
                         st.write("You're working many hours, which strongly influences the prediction.")
                     else:
                         st.write("You're working standard full-time hours.")
                         
                 # Add model comparison
-                if prediction == 1:
+                if prediction == '>50K':
                     other_models = [k for k, v in model_mapping.items() if v != selected_model_key]
                     st.write(f"**Note:** {random.choice(other_models)} might predict differently based on how it weighs these factors.")
                     

@@ -38,11 +38,28 @@ venv\Scripts\activate     # On Windows
 pip install -r requirements.txt
 ```
 
-### 4. Run the Web Application
+### 4. Run the Streamlit Application Locally
 ```
-python app.py
+streamlit run streamlit_app.py
 ```
-Then open your browser and navigate to http://localhost:5000
+Then open your browser and navigate to http://localhost:8501
+
+### 5. Run the Flask Application (Alternative)
+```
+python flask_app.py
+```
+Then open your browser and navigate to http://localhost:8080
+
+### 6. Deploy to Streamlit Cloud
+
+1. Push your code to a GitHub repository
+2. Go to [Streamlit Cloud](https://streamlit.io/cloud)
+3. Sign in with your GitHub account
+4. Click "New app"
+5. Select your repository, branch, and specify `streamlit_app.py` as the main file
+6. Click "Deploy"
+
+Note: Ensure your GitHub repository contains all necessary model files in the `data/models/` directory and preprocessor files in `data/processed/` directory. Alternatively, you can use the model upload functionality in the app sidebar.
 
 ## Project Structure
 - `data/`: Contains the dataset files

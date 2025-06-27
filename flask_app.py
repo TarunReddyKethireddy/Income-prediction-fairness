@@ -1,4 +1,159 @@
+import os
+import joblib
+import numpy as np
+import pandas as pd
+from flask import Flask, request, jsonify, render_template
+from sklearn.base import BaseEstimator, TransformerMixin
 
+# Define paths
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODELS_DIR = os.path.join(BASE_DIR, 'data', 'models')
+PROCESSED_DIR = os.path.join(BASE_DIR, 'data', 'processed')
+STATIC_DIR = os.path.join(BASE_DIR, 'static')
+TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
+
+# Create Flask app
+app = Flask(__name__, 
+            static_folder=STATIC_DIR,
+            template_folder=TEMPLATES_DIR)
+
+# Load models and preprocessor
+def load_models():
+    """Load trained models."""
+    models = {}
+    model_files = {
+        'logistic_regression': os.path.join(MODELS_DIR, 'logistic_regression.joblib'),
+        'random_forest': os.path.join(MODELS_DIR, 'random_forest.joblib'),
+        'fair_demographic_parity': os.path.join(MODELS_DIR, 'fair_demographic_parity.joblib'),
+        'fair_equalized_odds': os.path.join(MODELS_DIR, 'fair_equalized_odds.joblib')
+    }
+    
+    for name, path in model_files.items():
+        if os.path.exists(path):
+            models[name] = joblib.load(path)
+        else:
+            print(f"Warning: Model {name} not found at {path}")
+    
+    return models
+
+def load_preprocessor():
+    """Load trained preprocessor."""
+    preprocessor_path = os.path.join(PROCESSED_DIR, 'preprocessor.joblib')
+    if os.path.exists(preprocessor_path):
+        return joblib.load(preprocessor_path)
+    else:
+        print(f"Warning: Preprocessor not found at {preprocessor_path}")
+        return None
+
+def load_feature_names():
+    """Load feature names."""
+    feature_names_path = os.path.join(PROCESSED_DIR, 'feature_names.txt')
+    if os.path.exists(feature_names_path):
+        with open(feature_names_path, 'r') as f:
+            return f.read().splitlines()
+    else:
+        print(f"Warning: Feature names not found at {feature_names_path}")
+        return None
+
+# Get categorical column values
+def get_column_values():
+    return {
+        'workclass': ['Private', 'Self-emp-not-inc', 'Self-emp-inc', 'Federal-gov', 'Local-gov', 'State-gov', 'Without-pay', 'Never-worked'],
+        'education': ['Bachelors', 'Some-college', '11th', 'HS-grad', 'Prof-school', 'Assoc-acdm', 'Assoc-voc', '9th', '7th-8th', '12th', 'Masters', '1st-4th', '10th', 'Doctorate', '5th-6th', 'Preschool'],
+        'marital-status': ['Married-civ-spouse', 'Divorced', 'Never-married', 'Separated', 'Widowed', 'Married-spouse-absent', 'Married-AF-spouse'],
+        'occupation': ['Tech-support', 'Craft-repair', 'Other-service', 'Sales', 'Exec-managerial', 'Prof-specialty', 'Handlers-cleaners', 'Machine-op-inspct', 'Adm-clerical', 'Farming-fishing', 'Transport-moving', 'Priv-house-serv', 'Protective-serv', 'Armed-Forces'],
+        'relationship': ['Wife', 'Own-child', 'Husband', 'Not-in-family', 'Other-relative', 'Unmarried'],
+        'race': ['White', 'Asian-Pac-Islander', 'Amer-Indian-Eskimo', 'Other', 'Black'],
+        'sex': ['Female', 'Male'],
+        'native-country': ['United-States', 'Cambodia', 'England', 'Puerto-Rico', 'Canada', 'Germany', 'Outlying-US(Guam-USVI-etc)', 'India', 'Japan', 'Greece', 'South', 'China', 'Cuba', 'Iran', 'Honduras', 'Philippines', 'Italy', 'Poland', 'Jamaica', 'Vietnam', 'Mexico', 'Portugal', 'Ireland', 'France', 'Dominican-Republic', 'Laos', 'Ecuador', 'Taiwan', 'Haiti', 'Columbia', 'Hungary', 'Guatemala', 'Nicaragua', 'Scotland', 'Thailand', 'Yugoslavia', 'El-Salvador', 'Trinadad&Tobago', 'Peru', 'Hong', 'Holand-Netherlands']
+    }
+
+# Create example input
+def create_example_input():
+    return {
+        'age': 38,
+        'workclass': 'Private',
+        'fnlwgt': 189778,
+        'education': 'HS-grad',
+        'education-num': 9,
+        'marital-status': 'Divorced',
+        'occupation': 'Adm-clerical',
+        'relationship': 'Not-in-family',
+        'race': 'White',
+        'sex': 'Female',
+        'capital-gain': 0,
+        'capital-loss': 0,
+        'hours-per-week': 40,
+        'native-country': 'United-States'
+    }
+
+# Load models and preprocessor
+models = load_models()
+preprocessor = load_preprocessor()
+feature_names = load_feature_names()
+
+# Routes
+@app.route('/')
+def home():
+    return render_template('index.html', column_values=get_column_values(), example_input=create_example_input())
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    # Get form data
+    data = request.form.to_dict()
+    
+    # Convert numeric fields
+    for field in ['age', 'fnlwgt', 'education-num', 'capital-gain', 'capital-loss', 'hours-per-week']:
+        if field in data:
+            data[field] = float(data[field])
+    
+    # Create dataframe from input
+    input_df = pd.DataFrame([data])
+    
+    # Preprocess input
+    if preprocessor:
+        X = preprocessor.transform(input_df)
+    else:
+        return jsonify({'error': 'Preprocessor not available'})
+    
+    # Make predictions with all available models
+    results = {}
+    for name, model in models.items():
+        try:
+            # Handle fairness-aware models differently
+            if name.startswith('fair_'):
+                # Fairness models might use a different interface
+                # First try to get predictions directly
+                prediction = model.predict(X)[0]
+                
+                # For probability, check if the model has a predict_proba method
+                if hasattr(model, 'predict_proba'):
+                    proba = model.predict_proba(X)[0][1]
+                else:
+                    # If not, use the prediction as a binary outcome
+                    proba = float(prediction)
+            else:
+                # Standard scikit-learn models
+                proba = model.predict_proba(X)[0][1]
+                prediction = 1 if proba >= 0.5 else 0
+                
+            results[name] = {
+                'prediction': '>50K' if prediction == 1 else '<=50K',
+                'probability': float(proba)
+            }
+        except Exception as e:
+            results[name] = {'error': str(e)}
+    
+    return jsonify(results)
+
+if __name__ == '__main__':
+    # Create templates directory if it doesn't exist
+    if not os.path.exists(TEMPLATES_DIR):
+        os.makedirs(TEMPLATES_DIR)
+    
+    # Create HTML template
+    with open(os.path.join(TEMPLATES_DIR, 'index.html'), 'w') as f:
+        f.write("""
 <!DOCTYPE html>
 <html>
 <head>
@@ -284,4 +439,7 @@
     </script>
 </body>
 </html>
-        
+        """)
+    
+    # Run the app
+    app.run(host='0.0.0.0', port=8080, debug=True)

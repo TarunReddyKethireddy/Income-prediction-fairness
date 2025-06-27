@@ -8,3 +8,17 @@ font = "sans serif"
 [server]
 enableCORS = false
 enableXsrfProtection = false
+headless = true
+enableWebsocketCompression = true
+
+[browser]
+serveToAll = true
+
+[runner]
+fastReruns = true
+
+[global]
+developmentMode = false
+
+[logger]
+level = "warning"
