@@ -19,6 +19,16 @@ from src.utils.streamlit_helpers import (
     load_adult_data_sample, create_example_input, get_column_values
 )
 
+# Add compatibility layer for different scikit-learn versions
+def is_sklearn_version_less_than(major, minor):
+    """Check if scikit-learn version is less than specified version."""
+    import sklearn
+    from packaging import version
+    return version.parse(sklearn.__version__) < version.parse(f"{major}.{minor}")
+
+# Set sklearn version compatibility flag
+SKLEARN_PRE_1_0 = is_sklearn_version_less_than(1, 0)
+
 # Set page configuration
 st.set_page_config(
     page_title="Income Prediction with Fairness-Aware ML",
@@ -195,18 +205,23 @@ def load_preprocessor():
     
     # Create a dummy preprocessor
     class DummyPreprocessor:
+        def __init__(self):
+            # For compatibility with scikit-learn 0.24.2 column transformer
+            self.transformers_ = []
+            
         def transform(self, X):
             # Create a simple one-hot encoding simulation
             # Return a feature array with the right number of features
             n_samples = len(X)
             # Create a feature array with 104 features (typical for Adult dataset after preprocessing)
             return np.random.rand(n_samples, 104)
-            
+        
+        # For scikit-learn >= 1.0
         def get_feature_names_out(self):
             # Return dummy feature names
             return [f'feature_{i}' for i in range(104)]
             
-        # For backward compatibility with older scikit-learn versions
+        # For scikit-learn < 1.0
         def get_feature_names(self):
             # Return dummy feature names (for scikit-learn < 1.0)
             return [f'feature_{i}' for i in range(104)]
@@ -243,12 +258,27 @@ def load_feature_names():
         # Load preprocessor just for feature names extraction
         temp_preprocessor = load_preprocessor()
         if temp_preprocessor is not None:
-            # Try newer scikit-learn method first
-            if hasattr(temp_preprocessor, 'get_feature_names_out'):
-                return list(temp_preprocessor.get_feature_names_out())
-            # Fall back to older method
-            elif hasattr(temp_preprocessor, 'get_feature_names'):
-                return list(temp_preprocessor.get_feature_names())
+            if SKLEARN_PRE_1_0:
+                # For scikit-learn < 1.0 (like 0.24.2)
+                if hasattr(temp_preprocessor, 'get_feature_names'):
+                    return list(temp_preprocessor.get_feature_names())
+                # For column transformer in older versions
+                elif hasattr(temp_preprocessor, 'transformers_'):
+                    # Try to extract from column transformer components
+                    feature_names = []
+                    for _, transformer, cols in temp_preprocessor.transformers_:
+                        if hasattr(transformer, 'get_feature_names'):
+                            if isinstance(cols, list):
+                                feature_names.extend(transformer.get_feature_names())
+                    if feature_names:
+                        return feature_names
+            else:
+                # For scikit-learn >= 1.0
+                if hasattr(temp_preprocessor, 'get_feature_names_out'):
+                    return list(temp_preprocessor.get_feature_names_out())
+                # Fall back to older method
+                elif hasattr(temp_preprocessor, 'get_feature_names'):
+                    return list(temp_preprocessor.get_feature_names())
     except Exception as e:
         st.warning(f"Could not extract feature names from preprocessor: {str(e)}")
     
@@ -368,6 +398,14 @@ def predict_income(input_data, model_name='logistic_regression'):
             debug_info.append(f"Error in preprocessing: {str(preprocess_error)}")
             st.sidebar.expander("Prediction Debug", expanded=False).write("\n".join(debug_info))
             return None, f"Preprocessing error: {str(preprocess_error)}"
+            
+        # Add compatibility check for scikit-learn version
+        debug_info.append(f"Using scikit-learn pre-1.0 compatibility: {SKLEARN_PRE_1_0}")
+        if SKLEARN_PRE_1_0:
+            debug_info.append("Applying scikit-learn 0.24.2 compatibility fixes")
+            # Some older scikit-learn versions have issues with pandas DataFrames
+            if isinstance(X, pd.DataFrame):
+                X = X.values
         
         # Convert sparse matrix to dense if needed
         if hasattr(X, 'toarray'):
