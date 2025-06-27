@@ -22,3 +22,10 @@ developmentMode = false
 
 [logger]
 level = "warning"
+
+[client]
+toolbarMode = "minimal"
+
+[deploy]
+packageManager = "pip"
+requirementsFile = "requirements-streamlit.txt"
