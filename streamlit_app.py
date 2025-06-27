@@ -154,6 +154,20 @@ def load_models():
     
     return models
 
+# Define DummyPreprocessor class outside the function to avoid serialization issues
+class DummyPreprocessor:
+    """Dummy preprocessor class for when the real preprocessor is not available."""
+    def transform(self, X):
+        # Create a simple one-hot encoding simulation
+        # Return a feature array with the right number of features
+        n_samples = len(X)
+        # Create a feature array with 104 features (typical for Adult dataset after preprocessing)
+        return np.random.rand(n_samples, 104)
+        
+    def get_feature_names_out(self):
+        # Return dummy feature names
+        return [f'feature_{i}' for i in range(104)]
+
 # Use a hash function to ensure cache is invalidated when needed
 @st.cache_resource(hash_funcs={object: lambda _: None})
 def load_preprocessor():
@@ -192,19 +206,6 @@ def load_preprocessor():
     else:
         debug_info.append("Preprocessor file not found")
         st.warning(f"Preprocessor file not found at {preprocessor_path}. Using dummy preprocessor.")
-    
-    # Create a dummy preprocessor
-    class DummyPreprocessor:
-        def transform(self, X):
-            # Create a simple one-hot encoding simulation
-            # Return a feature array with the right number of features
-            n_samples = len(X)
-            # Create a feature array with 104 features (typical for Adult dataset after preprocessing)
-            return np.random.rand(n_samples, 104)
-            
-        def get_feature_names_out(self):
-            # Return dummy feature names
-            return [f'feature_{i}' for i in range(104)]
     
     debug_info.append("Created dummy preprocessor")
     
