@@ -651,6 +651,24 @@ if page == "Home":
                                          column_values['marital-status'],
                                          index=column_values['marital-status'].index(example_input['marital-status']))
         
+        # Demographic information
+        st.subheader("Demographic Information")
+        relationship = st.selectbox("Relationship", 
+                                   column_values['relationship'],
+                                   index=column_values['relationship'].index(example_input['relationship']))
+        
+        race = st.selectbox("Race", 
+                           column_values['race'],
+                           index=column_values['race'].index(example_input['race']))
+        
+        sex = st.selectbox("Sex", 
+                         column_values['sex'],
+                         index=column_values['sex'].index(example_input['sex']))
+        
+        native_country = st.selectbox("Native Country", 
+                                    column_values['native-country'],
+                                    index=column_values['native-country'].index(example_input['native-country']))
+        
         # Model selection
         st.subheader("Model Selection")
         model_choice = st.selectbox(
@@ -685,18 +703,10 @@ if page == "Home":
                     'capital-gain': [capital_gain],
                     'capital-loss': [capital_loss],
                     'hours-per-week': [hours_per_week],
-                    'relationship': [st.selectbox("Relationship", 
-                                    column_values['relationship'],
-                                    index=column_values['relationship'].index(example_input['relationship']))],
-                    'race': [st.selectbox("Race", 
-                                    column_values['race'],
-                                    index=column_values['race'].index(example_input['race']))],
-                    'sex': [st.selectbox("Sex", 
-                                    column_values['sex'],
-                                    index=column_values['sex'].index(example_input['sex']))],
-                    'native-country': [st.selectbox("Native Country", 
-                                    column_values['native-country'],
-                                    index=column_values['native-country'].index(example_input['native-country']))]
+                    'relationship': [relationship],
+                    'race': [race],
+                    'sex': [sex],
+                    'native-country': [native_country]
                 })
                 
                 # Preprocess the input data
