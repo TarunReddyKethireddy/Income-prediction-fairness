@@ -6,3 +6,8 @@ libxslt1-dev
 zlib1g-dev
 libffi-dev
 libssl-dev
+libblas-dev
+liblapack-dev
+libatlas-base-dev
+gfortran
+pkg-config
