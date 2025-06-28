@@ -14,8 +14,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 
 # Import helper functions
 from src.utils.streamlit_helpers import (
-    download_and_extract_models, download_individual_models, check_demo_mode,
-    create_dummy_models, create_dummy_preprocessor, create_dummy_data, create_dummy_metrics,
+    download_and_extract_models, download_individual_models,
     load_adult_data_sample, create_example_input, get_column_values
 )
 
@@ -465,15 +464,18 @@ performance_df = load_performance_metrics()
 fairness_df = load_fairness_metrics()
 data = load_data()
 
-# Check if we're in demo mode
-demo_mode = check_demo_mode()
+# Check if models exist
+model_exists = os.path.exists(os.path.join(MODELS_DIR, 'logistic_regression.joblib'))
+preprocessor_exists = os.path.exists(os.path.join(PROCESSED_DIR, 'preprocessor.joblib'))
 
 # Define sidebar navigation
 st.sidebar.title("Navigation")
 
-# Add model file upload option in sidebar if in demo mode
-if demo_mode:
-    st.sidebar.warning("⚠️ Running in demo mode with simulated data and predictions")
+# Add model file upload option in sidebar if models don't exist
+if not (model_exists and preprocessor_exists):
+    st.sidebar.warning("⚠️ Models or preprocessor not found. Please train models first.")
+    st.sidebar.info("Use the 'Train Models' section to train and save models.")
+
     
     # Add option to download models from cloud storage
     st.sidebar.markdown("### Download Models from Cloud Storage")
@@ -841,8 +843,8 @@ if page == "Home":
             else:
                 # Error message suppressed as requested
                 pass  # st.error("Models or preprocessor not loaded correctly. Please check the model files.")
-                if demo_mode:
-                    st.info("You are currently in demo mode. Upload model files or download them from cloud storage to use actual models.")
+                if not (model_exists and preprocessor_exists):
+                    st.info("Models or preprocessor not found. Please train models first or upload them from cloud storage.")
                 
                 # Generate dynamic visualization based on input
                 st.subheader("Feature Importance for This Prediction")

@@ -19,9 +19,8 @@ The project uses the Adult Income Dataset from the UCI Machine Learning Reposito
 
 ## Installation and Setup
 
-### 1. Clone the Repository
+### 1. Setup the Project
 ```
-git clone https://github.com/your-username/income-prediction-fairness.git
 cd income-prediction-fairness
 ```
 
@@ -52,14 +51,14 @@ Then open your browser and navigate to http://localhost:8080
 
 ### 6. Deploy to Streamlit Cloud
 
-1. Push your code to a GitHub repository
-2. Go to [Streamlit Cloud](https://streamlit.io/cloud)
-3. Sign in with your GitHub account
-4. Click "New app"
-5. Select your repository, branch, and specify `streamlit_app.py` as the main file
+1. Go to [Streamlit Cloud](https://streamlit.io/cloud)
+2. Sign in with your account
+3. Click "New app"
+4. Follow the instructions to connect your project
+5. Specify `streamlit_app.py` as the main file
 6. Click "Deploy"
 
-Note: Ensure your GitHub repository contains all necessary model files in the `data/models/` directory and preprocessor files in `data/processed/` directory. Alternatively, you can use the model upload functionality in the app sidebar.
+Note: Ensure your project contains all necessary model files in the `data/models/` directory and preprocessor files in `data/processed/` directory. Alternatively, you can use the model upload functionality in the app sidebar.
 
 ## Project Structure
 - `data/`: Contains the dataset files
